@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+
+data/
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+*.pt
+*.pth
+
+.ipynb_checkpoints/
+.env
+.vscode/
