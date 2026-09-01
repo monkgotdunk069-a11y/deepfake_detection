@@ -18,3 +18,4 @@ plotly>=5.17.0
 
 # Documentation & PDF Report Generation
 reportlab>=4.0.0
+opencv-python-headless
