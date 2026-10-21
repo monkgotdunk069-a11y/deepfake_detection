@@ -51,11 +51,6 @@ def load_detector_model(
     print(f"Loading model: {model_path}")
     print(f"Backbone: {backbone_type}")
 
-    model = ResNeXtLSTMDetector(
-        backbone_type=backbone_type,
-        pretrained=False
-    )
-
     if not os.path.exists(model_path):
         raise FileNotFoundError(
             f"Model checkpoint not found:\n{model_path}"
@@ -93,6 +88,26 @@ def load_detector_model(
         cleaned_state_dict[key] = value
 
     state_dict = cleaned_state_dict
+
+    lstm_weight = state_dict.get("lstm.weight_hh_l0")
+    if lstm_weight is None or len(lstm_weight.shape) != 2:
+        raise RuntimeError(
+            "Checkpoint does not contain a valid LSTM state. "
+            "Expected 'lstm.weight_hh_l0'."
+        )
+
+    hidden_dim = int(lstm_weight.shape[1])
+    uses_attention = any(
+        key.startswith("temporal_attention.")
+        for key in state_dict
+    )
+
+    model = ResNeXtLSTMDetector(
+        backbone_type=backbone_type,
+        hidden_dim=hidden_dim,
+        pretrained=False,
+        use_temporal_attention=uses_attention
+    )
 
     model.load_state_dict(
         state_dict,

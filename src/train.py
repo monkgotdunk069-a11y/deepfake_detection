@@ -10,7 +10,13 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score, roc_curve
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    confusion_matrix,
+    classification_report,
+    roc_auc_score,
+)
 
 # Ensure project root is on sys.path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -92,13 +98,14 @@ def train_model(
     backbone_type="resnet18",
     num_frames=32,
     batch_size=4,
-    epochs=25,
+    epochs=18,
     lr=1e-4,
-    weight_decay=1e-3,
+    weight_decay=3e-3,
     max_real=150,
     max_fake=150,
-    freeze_epochs=1,
-    patience=6,
+    freeze_epochs=2,
+    patience=4,
+    cache_dir="data_cache",
     device=None
 ):
     if epochs < 1:
@@ -120,19 +127,32 @@ def train_model(
         raise ValueError(
             "Need at least two videos per class to create a stratified train/validation split."
         )
-    validation_fraction = max(0.2, class_count / len(dataset_items))
-    train_items, test_items = train_test_split(
+    train_items, heldout_items = train_test_split(
         dataset_items,
-        test_size=validation_fraction,
+        test_size=0.3,
         random_state=42,
         stratify=labels
+    )
+    heldout_labels = [item[1] for item in heldout_items]
+    val_items, test_items = train_test_split(
+        heldout_items,
+        test_size=0.5,
+        random_state=42,
+        stratify=heldout_labels
     )
     train_balance = compute_class_balance(train_items)
     print(f"Training label distribution: {train_balance['counts']} | imbalance_ratio={train_balance['imbalance_ratio']:.3f}")
     
     # Use augmented transforms for training, clean transforms for validation
-    train_dataset = DeepfakeVideoDataset(train_items, num_frames=num_frames, is_training=True)
-    test_dataset = DeepfakeVideoDataset(test_items, num_frames=num_frames, is_training=False)
+    train_dataset = DeepfakeVideoDataset(
+        train_items, num_frames=num_frames, is_training=True, cache_dir=cache_dir
+    )
+    val_dataset = DeepfakeVideoDataset(
+        val_items, num_frames=num_frames, is_training=False, cache_dir=cache_dir
+    )
+    test_dataset = DeepfakeVideoDataset(
+        test_items, num_frames=num_frames, is_training=False, cache_dir=cache_dir
+    )
 
     if train_balance["is_imbalanced"]:
         sample_weights = [1.0 / train_balance["counts"][int(label)] for _, label in train_items]
@@ -146,6 +166,7 @@ def train_model(
     else:
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         print("Training set is approximately balanced -> using standard shuffling.")
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     
     # 2. Instantiate Model
@@ -158,7 +179,9 @@ def train_model(
     print(f"Backbone FROZEN for first {freeze_epochs} epoch(s) — training LSTM head only.")
     
     pos_weight = torch.tensor([train_balance["pos_weight"]], dtype=torch.float32, device=device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight if train_balance["is_imbalanced"] else None)
+    criterion = nn.BCEWithLogitsLoss(
+        pos_weight=pos_weight * 0.85 if train_balance["is_imbalanced"] else None
+    )
     
     # Only optimize non-frozen parameters initially
     optimizer = torch.optim.AdamW(
@@ -175,7 +198,7 @@ def train_model(
     
     print(
         f"\n--- Starting Training ({len(train_loader)} train batches/epoch, "
-        f"{len(test_loader)} validation batches/epoch) ---",
+        f"{len(val_loader)} validation batches/epoch) ---",
         flush=True
     )
     for epoch in range(1, epochs + 1):
@@ -189,6 +212,7 @@ def train_model(
                 {"params": model.lstm.parameters()},
                 {"params": model.frame_classifier.parameters()},
                 {"params": model.classifier.parameters()},
+                {"params": model.temporal_attention.parameters()},
             ], lr=lr, weight_decay=weight_decay)
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
@@ -245,7 +269,7 @@ def train_model(
         val_total = 0
         
         with torch.no_grad():
-            for batch_idx, (videos, labels) in enumerate(test_loader):
+            for batch_idx, (videos, labels) in enumerate(val_loader):
                 videos = videos.to(device)
                 labels = labels.to(device)
                 logits, _ = model(videos)
@@ -258,7 +282,7 @@ def train_model(
                 val_total += labels.size(0)
                 print(
                     f"\rEpoch [{epoch}/{epochs}] validation "
-                    f"batch [{batch_idx + 1}/{len(test_loader)}]",
+                    f"batch [{batch_idx + 1}/{len(val_loader)}]",
                     end="",
                     flush=True
                 )
@@ -324,8 +348,21 @@ def evaluate_and_plot(model, test_loader, device, cm_save_path="confusion_matrix
             all_labels.extend(labels.numpy().astype(int))
             
     cm = confusion_matrix(all_labels, all_preds)
+    auc_score = roc_auc_score(all_labels, all_probs)
+    best_threshold, best_balanced_accuracy = find_best_threshold(
+        all_labels, all_probs
+    )
     print("\n--- Confusion Matrix ---")
     print(cm)
+    print(
+        f"Accuracy: {accuracy_score(all_labels, all_preds):.4f} | "
+        f"Balanced Accuracy: {balanced_accuracy_score(all_labels, all_preds):.4f} | "
+        f"ROC-AUC: {auc_score:.4f}"
+    )
+    print(
+        f"Best threshold: {best_threshold:.2f} | "
+        f"Balanced Accuracy: {best_balanced_accuracy:.4f}"
+    )
     
     target_names = ["Real", "Fake"]
     report = classification_report(all_labels, all_preds, target_names=target_names, zero_division=0)
@@ -342,6 +379,18 @@ def evaluate_and_plot(model, test_loader, device, cm_save_path="confusion_matrix
     plt.savefig(cm_save_path, dpi=300)
     plt.close()
     print(f"Confusion matrix plot saved to {cm_save_path}")
+
+
+def find_best_threshold(labels, probabilities):
+    best_threshold = 0.5
+    best_score = 0.0
+    for threshold in np.arange(0.30, 0.76, 0.01):
+        predictions = (np.asarray(probabilities) >= threshold).astype(int)
+        score = balanced_accuracy_score(labels, predictions)
+        if score > best_score:
+            best_threshold = float(threshold)
+            best_score = float(score)
+    return best_threshold, best_score
 
 if __name__ == "__main__":
     train_model()

@@ -1,10 +1,12 @@
 import os
+import hashlib
 import cv2
 import numpy as np
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
+import torchvision.transforms.functional as TF
 
 # OpenCV Haar Cascade for face detection
 HAAR_CASCADE_PATH = os.path.join(
@@ -200,10 +202,20 @@ class DeepfakeVideoDataset(Dataset):
     PyTorch Dataset for loading and batching deepfake video sequences.
     Uses augmented transforms during training and clean transforms during evaluation.
     """
-    def __init__(self, video_items, num_frames=32, transform=None, is_training=False):
+    def __init__(
+        self,
+        video_items,
+        num_frames=32,
+        transform=None,
+        is_training=False,
+        cache_dir=None
+    ):
         self.video_items = video_items
         self.num_frames = num_frames
         self.is_training = is_training
+        self.cache_dir = cache_dir
+        if cache_dir is not None:
+            os.makedirs(cache_dir, exist_ok=True)
         # Auto-select transform based on training/eval mode if not explicitly provided
         if transform is not None:
             self.transform = transform
@@ -218,8 +230,11 @@ class DeepfakeVideoDataset(Dataset):
     def __getitem__(self, idx):
         video_path, label = self.video_items[idx]
         try:
-            face_seq, _ = process_video(video_path, num_frames=self.num_frames)
-            if self.transform is not None:
+            face_seq = self._load_face_sequence(video_path)
+            if self.is_training and self.transform is not None:
+                tensors = self._transform_sequence(face_seq)
+                video_tensor = torch.stack(tensors, dim=0)
+            elif self.transform is not None:
                 tensors = [self.transform(face) for face in face_seq]
                 video_tensor = torch.stack(tensors, dim=0)  # (num_frames, 3, 224, 224)
             else:
@@ -234,3 +249,63 @@ class DeepfakeVideoDataset(Dataset):
         if HAS_TORCH:
             return video_tensor, torch.tensor(label, dtype=torch.float32)
         return video_tensor, label
+
+    def _cache_path(self, video_path):
+        key = hashlib.sha1(
+            f"{os.path.abspath(video_path)}:{self.num_frames}".encode()
+        ).hexdigest()
+        return os.path.join(self.cache_dir, f"{key}.npy")
+
+    def _load_face_sequence(self, video_path):
+        if self.cache_dir is None:
+            face_seq, _ = process_video(video_path, num_frames=self.num_frames)
+            return face_seq
+
+        cache_path = self._cache_path(video_path)
+        if os.path.exists(cache_path):
+            return np.load(cache_path)
+
+        face_seq, _ = process_video(video_path, num_frames=self.num_frames)
+        np.save(cache_path, face_seq)
+        return face_seq
+
+    def _transform_sequence(self, face_seq):
+        params = {
+            "flip": bool(torch.rand(()) < 0.5),
+            "angle": float(torch.empty(1).uniform_(-8, 8).item()),
+            "translate": [
+                int(torch.empty(1).uniform_(-11, 12).item()),
+                int(torch.empty(1).uniform_(-11, 12).item())
+            ],
+            "scale": float(torch.empty(1).uniform_(0.95, 1.05).item()),
+            "shear": [
+                float(torch.empty(1).uniform_(-4, 4).item()),
+                0.0
+            ]
+        }
+        tensors = []
+        for face in face_seq:
+            image = self.transform.transforms[0](face)
+            image = TF.resize(image, [224, 224])
+            if params["flip"]:
+                image = TF.hflip(image)
+            image = TF.affine(
+                image,
+                angle=params["angle"],
+                translate=params["translate"],
+                scale=params["scale"],
+                shear=params["shear"]
+            )
+            image = transforms.ColorJitter(
+                brightness=0.25,
+                contrast=0.25,
+                saturation=0.2,
+                hue=0.08
+            )(image)
+            if torch.rand(()) < 0.25:
+                image = TF.gaussian_blur(image, [3, 3], [0.1, 1.5])
+            if torch.rand(()) < 0.03:
+                image = TF.rgb_to_grayscale(image, num_output_channels=3)
+            tensors.append(self.transform.transforms[-2](image))
+            tensors[-1] = self.transform.transforms[-1](tensors[-1])
+        return tensors

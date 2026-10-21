@@ -14,11 +14,12 @@ if HAS_TORCH:
         def __init__(
             self,
             backbone_type="resnet18",
-            hidden_dim=256,
+            hidden_dim=128,
             num_layers=2,
             bidirectional=True,
             dropout=0.4,
-            pretrained=False
+            pretrained=False,
+            use_temporal_attention=True
         ):
             super(ResNeXtLSTMDetector, self).__init__()
 
@@ -26,6 +27,7 @@ if HAS_TORCH:
             self.hidden_dim = hidden_dim
             self.bidirectional = bidirectional
             self.num_directions = 2 if bidirectional else 1
+            self.use_temporal_attention = use_temporal_attention
 
             if backbone_type == "resnet18":
                 weights = (
@@ -83,6 +85,7 @@ if HAS_TORCH:
             self.frame_classifier = nn.Sequential(
                 nn.Linear(lstm_out_dim, 64),
                 nn.ReLU(),
+                nn.Dropout(0.3),
                 nn.Linear(64, 1)
             )
 
@@ -90,8 +93,17 @@ if HAS_TORCH:
                 nn.Linear(lstm_out_dim, 128),
                 nn.ReLU(),
                 nn.Dropout(0.5),
-                nn.Linear(128, 1)
+                nn.Linear(128, 64),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(64, 1)
             )
+            if use_temporal_attention:
+                self.temporal_attention = nn.Sequential(
+                    nn.Linear(lstm_out_dim, 64),
+                    nn.Tanh(),
+                    nn.Linear(64, 1)
+                )
 
         def forward(self, x):
             batch_size, seq_len, c, h, w = x.shape
@@ -124,10 +136,18 @@ if HAS_TORCH:
 
             frame_logits = self.frame_classifier(lstm_out)
 
-            temporal_pooled = torch.mean(
-                lstm_out,
-                dim=1
-            )
+            if self.use_temporal_attention:
+                attention_scores = self.temporal_attention(lstm_out).squeeze(-1)
+                attention_weights = torch.softmax(
+                    attention_scores,
+                    dim=1
+                ).unsqueeze(-1)
+                temporal_pooled = torch.sum(
+                    lstm_out * attention_weights,
+                    dim=1
+                )
+            else:
+                temporal_pooled = torch.mean(lstm_out, dim=1)
 
             logits = self.classifier(temporal_pooled)
 
