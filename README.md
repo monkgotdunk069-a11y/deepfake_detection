@@ -45,6 +45,18 @@ Featuring a **Cyber-Forensics Dark Command Center** web application with full ar
 
 ### 7. 📊 Reported Evaluation Results
 
+The best recorded validation checkpoint was restored from epoch 7:
+
+| Checkpoint metric | Result |
+|---|---:|
+| Best validation accuracy | **85.00%** |
+| Validation loss | **0.4210** |
+| Restored checkpoint | **Epoch 7** |
+
+This validation result is separate from the test-set results below. It
+describes performance on the validation split used during training and does
+not guarantee the same accuracy on unseen videos.
+
 The current evaluation confusion matrix contains 45 test videos:
 
 | Metric | Result |
@@ -90,13 +102,20 @@ streamlit run app.py
 
 ## Accuracy-focused training defaults
 
-The training pipeline uses a longer 32-frame temporal sequence, 25 maximum
-epochs, and early backbone unfreezing after the first epoch. The pretrained
+The training pipeline uses a 32-frame temporal sequence by default, with
+configurable frame counts for experiments. The pretrained
 ResNet-18 backbone is fine-tuned with a learning rate 10x lower than the
 temporal and classification heads. Training-only augmentation includes
 horizontal flips, small affine pose changes, lighting/color variation,
-occasional blur, and grayscale conversion. Early stopping (patience 6) still
-restores the best validation-loss checkpoint to limit overfitting.
+occasional blur, and grayscale conversion. Early stopping restores the
+checkpoint with the best validation accuracy, using validation loss as a
+tie-breaker, to limit overfitting.
+
+The reported best checkpoint used 32 sampled face frames per video and
+restored epoch 7 with **85.00% validation accuracy**. The Streamlit
+application supports temporal sequence depths from 8 to 48 frames, including
+32, 40, and 48-frame options. If the frame count is changed, retrain and
+reevaluate the model before comparing accuracy results.
 
 Run a full training pass with:
 
@@ -105,5 +124,5 @@ python -m src.train
 ```
 
 Use a CUDA-enabled PyTorch installation for practical training time. The
-Streamlit app defaults to the same 32-frame sequence and also exposes 40- and
-48-frame choices for longer videos.
+Streamlit app defaults to the same 32-frame sequence and also exposes
+additional frame-depth choices for longer videos.
