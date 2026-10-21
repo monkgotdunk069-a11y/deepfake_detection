@@ -41,7 +41,22 @@ Featuring a **Cyber-Forensics Dark Command Center** web application with full ar
 
 ### 6. 🧠 Neural Architecture & Explainability
 - Complete mathematical breakdown of spatial convolution ($224 \times 224 \to 512\text{-dim}$) and temporal recurrent modeling ($512\text{-dim} \to \text{Bi-LSTM}$).
-- Test set Confusion Matrix ($AUC = 0.942$, $F1 = 0.906$) and loss formulation.
+- Test set confusion matrix, accuracy metrics, and loss formulation.
+
+### 7. 📊 Reported Evaluation Results
+
+The current evaluation confusion matrix contains 45 test videos:
+
+| Metric | Result |
+|---|---:|
+| Accuracy | **66.67%** (30/45) |
+| Balanced accuracy | **67.20%** |
+| Real-video recall | **43.48%** (10/23) |
+| Fake-video recall | **90.91%** (20/22) |
+
+The detector identifies most fake videos in this evaluation, but it also
+misclassifies authentic videos as fake (13 false positives). Treat predictions
+as an automated screening signal rather than definitive forensic proof.
 
 ---
 

@@ -192,7 +192,8 @@ def train_model(
     
     history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
     best_val_loss = float('inf')
-    best_val_acc = 0.0
+    best_val_acc = -1.0
+    best_epoch = 0
     epochs_without_improvement = 0
     best_model_state = None
     
@@ -301,27 +302,39 @@ def train_model(
               f"Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc*100:.2f}% | "
               f"Val Loss: {epoch_val_loss:.4f} | Val Acc: {epoch_val_acc*100:.2f}%")
         
-        # Save best model based on val_loss (more reliable than val_acc for overfitting)
-        if epoch_val_loss < best_val_loss:
+        # Select the checkpoint with the highest validation accuracy. If accuracy
+        # ties, prefer the lower validation loss.
+        is_better_checkpoint = (
+            epoch_val_acc > best_val_acc
+            or (
+                epoch_val_acc == best_val_acc
+                and epoch_val_loss < best_val_loss
+            )
+        )
+        if is_better_checkpoint:
             best_val_loss = epoch_val_loss
             best_val_acc = epoch_val_acc
+            best_epoch = epoch
             best_model_state = {k: v.clone() for k, v in model.state_dict().items()}
             torch.save(model.state_dict(), output_model_path)
             print(f"  -> Best model saved to {output_model_path} (Val Loss: {best_val_loss:.4f}, Val Acc: {best_val_acc*100:.2f}%)")
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
-            print(f"  -> No improvement for {epochs_without_improvement} epoch(s) (patience: {patience})")
+            print(f"  -> No validation-accuracy improvement for {epochs_without_improvement} epoch(s) (patience: {patience})")
         
         # Early stopping
         if epochs_without_improvement >= patience:
-            print(f"\n>> Early stopping triggered at epoch {epoch} (no val_loss improvement for {patience} epochs)")
+            print(f"\n>> Early stopping triggered at epoch {epoch} (no validation-accuracy improvement for {patience} epochs)")
             break
     
     # Restore best model weights
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
-        print(f"Restored best model weights (Val Loss: {best_val_loss:.4f}, Val Acc: {best_val_acc*100:.2f}%)")
+        print(
+            f"Restored best model weights from epoch {best_epoch} "
+            f"(Val Loss: {best_val_loss:.4f}, Val Acc: {best_val_acc*100:.2f}%)"
+        )
             
     # 4. Model Evaluation on Test Set
     evaluate_and_plot(model, test_loader, device)
