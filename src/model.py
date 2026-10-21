@@ -1,14 +1,10 @@
-import os
 import numpy as np
 import cv2
+import torch
+import torch.nn as nn
+import torchvision.models as models
 
-try:
-    import torch
-    import torch.nn as nn
-    import torchvision.models as models
-    HAS_TORCH = True
-except Exception:
-    HAS_TORCH = False
+HAS_TORCH = True
 
 
 if HAS_TORCH:
@@ -38,7 +34,7 @@ if HAS_TORCH:
                 )
                 backbone = models.resnet18(weights=weights)
                 in_features = backbone.fc.in_features
-                backbone.fc = nn.Identity()
+                setattr(backbone, "fc", nn.Identity())
                 self.feature_extractor = backbone
 
             elif backbone_type == "resnext50":
@@ -48,7 +44,7 @@ if HAS_TORCH:
                 )
                 backbone = models.resnext50_32x4d(weights=weights)
                 in_features = backbone.fc.in_features
-                backbone.fc = nn.Identity()
+                setattr(backbone, "fc", nn.Identity())
                 self.feature_extractor = backbone
 
             elif backbone_type == "resnet50":
@@ -58,7 +54,7 @@ if HAS_TORCH:
                 )
                 backbone = models.resnet50(weights=weights)
                 in_features = backbone.fc.in_features
-                backbone.fc = nn.Identity()
+                setattr(backbone, "fc", nn.Identity())
                 self.feature_extractor = backbone
 
             else:
@@ -107,7 +103,14 @@ if HAS_TORCH:
                 w
             )
 
-            features = self.feature_extractor(x_reshaped)
+            if any(
+                parameter.requires_grad
+                for parameter in self.feature_extractor.parameters()
+            ):
+                features = self.feature_extractor(x_reshaped)
+            else:
+                with torch.no_grad():
+                    features = self.feature_extractor(x_reshaped)
 
             projected = self.feature_proj(features)
 

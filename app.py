@@ -81,7 +81,7 @@ device_type = "CUDA GPU" if getattr(device, "type", "") == "cuda" else "Multi-Th
 if "sens_threshold" not in st.session_state:
     st.session_state.sens_threshold = 0.50
 if "seq_depth" not in st.session_state:
-    st.session_state.seq_depth = 16
+    st.session_state.seq_depth = 32
 if "app_theme_mode" not in st.session_state:
     st.session_state.app_theme_mode = "🌙 Obsidian Dark"
 
@@ -138,11 +138,11 @@ with st.sidebar:
         help="Probability threshold at which a video is classified as a synthetic deepfake."
     )
 
-    current_depth = st.session_state.get("seq_depth", 16)
+    current_depth = st.session_state.get("seq_depth", 32)
     st.markdown(f'<div class="control-label-row"><span>Temporal Sequence Depth</span><span class="control-value-pill">{current_depth} frames</span></div>', unsafe_allow_html=True)
     seq_frames = st.select_slider(
         "Temporal Sequence Depth",
-        options=[8, 12, 16, 20, 24, 32],
+        options=[8, 12, 16, 20, 24, 32, 40, 48],
         key="seq_depth",
         label_visibility="collapsed",
         help="Number of uniformly sampled facial frames analyzed by ResNet-18 and Bi-LSTM."

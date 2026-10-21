@@ -2,6 +2,7 @@ import os
 import sys
 import glob
 import random
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -89,24 +90,43 @@ def train_model(
     data_dir="data",
     output_model_path="deepfake_model.pt",
     backbone_type="resnet18",
-    num_frames=16,
+    num_frames=32,
     batch_size=4,
-    epochs=5,
+    epochs=25,
     lr=1e-4,
     weight_decay=1e-3,
-    max_real=50,
-    max_fake=50,
-    freeze_epochs=2,
-    patience=3,
+    max_real=150,
+    max_fake=150,
+    freeze_epochs=1,
+    patience=6,
     device=None
 ):
+    if epochs < 1:
+        raise ValueError("epochs must be at least 1")
+    if num_frames < 1:
+        raise ValueError("num_frames must be at least 1")
+    if freeze_epochs < 0 or freeze_epochs >= epochs:
+        raise ValueError("freeze_epochs must be non-negative and less than epochs")
+
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
     # 1. Prepare Dataset Splits
     dataset_items = get_balanced_dataset_paths(data_dir=data_dir, max_real=max_real, max_fake=max_fake)
-    train_items, test_items = train_test_split(dataset_items, test_size=0.2, random_state=42, stratify=[item[1] for item in dataset_items])
+    labels = [item[1] for item in dataset_items]
+    class_count = len(set(labels))
+    if len(dataset_items) < class_count * 2:
+        raise ValueError(
+            "Need at least two videos per class to create a stratified train/validation split."
+        )
+    validation_fraction = max(0.2, class_count / len(dataset_items))
+    train_items, test_items = train_test_split(
+        dataset_items,
+        test_size=validation_fraction,
+        random_state=42,
+        stratify=labels
+    )
     train_balance = compute_class_balance(train_items)
     print(f"Training label distribution: {train_balance['counts']} | imbalance_ratio={train_balance['imbalance_ratio']:.3f}")
     
@@ -153,7 +173,11 @@ def train_model(
     epochs_without_improvement = 0
     best_model_state = None
     
-    print("\n--- Starting Training ---")
+    print(
+        f"\n--- Starting Training ({len(train_loader)} train batches/epoch, "
+        f"{len(test_loader)} validation batches/epoch) ---",
+        flush=True
+    )
     for epoch in range(1, epochs + 1):
         # Unfreeze backbone after freeze_epochs and rebuild optimizer with lower backbone LR
         if epoch == freeze_epochs + 1:
@@ -166,12 +190,16 @@ def train_model(
                 {"params": model.frame_classifier.parameters()},
                 {"params": model.classifier.parameters()},
             ], lr=lr, weight_decay=weight_decay)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs - freeze_epochs)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=max(1, epochs - freeze_epochs)
+            )
         
         model.train()
         running_loss = 0.0
         correct = 0
         total = 0
+        epoch_started = time.perf_counter()
         
         for batch_idx, (videos, labels) in enumerate(train_loader):
             videos = videos.to(device)
@@ -193,6 +221,17 @@ def train_model(
             preds = (torch.sigmoid(logits) >= 0.5).float()
             correct += (preds == labels).sum().item()
             total += labels.size(0)
+
+            elapsed = time.perf_counter() - epoch_started
+            print(
+                f"\rEpoch [{epoch}/{epochs}] "
+                f"batch [{batch_idx + 1}/{len(train_loader)}] "
+                f"elapsed {elapsed:.0f}s",
+                end="",
+                flush=True
+            )
+
+        print(flush=True)
             
         scheduler.step()
         
@@ -206,7 +245,7 @@ def train_model(
         val_total = 0
         
         with torch.no_grad():
-            for videos, labels in test_loader:
+            for batch_idx, (videos, labels) in enumerate(test_loader):
                 videos = videos.to(device)
                 labels = labels.to(device)
                 logits, _ = model(videos)
@@ -217,6 +256,14 @@ def train_model(
                 preds = (torch.sigmoid(logits) >= 0.5).float()
                 val_correct += (preds == labels).sum().item()
                 val_total += labels.size(0)
+                print(
+                    f"\rEpoch [{epoch}/{epochs}] validation "
+                    f"batch [{batch_idx + 1}/{len(test_loader)}]",
+                    end="",
+                    flush=True
+                )
+
+        print(flush=True)
                 
         epoch_val_loss = val_loss / max(val_total, 1)
         epoch_val_acc = val_correct / max(val_total, 1)
@@ -297,4 +344,4 @@ def evaluate_and_plot(model, test_loader, device, cm_save_path="confusion_matrix
     print(f"Confusion matrix plot saved to {cm_save_path}")
 
 if __name__ == "__main__":
-    train_model(epochs=3, max_real=30, max_fake=30)
+    train_model()

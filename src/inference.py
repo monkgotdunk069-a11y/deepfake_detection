@@ -1,22 +1,20 @@
 import os
 import sys
 import numpy as np
-from PIL import Image
+import torch
+import torchvision.transforms as transforms
+from typing import cast
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from src.model import HAS_TORCH, SpatialTemporalForensicDetector
+from src.model import HAS_TORCH, ResNeXtLSTMDetector, SpatialTemporalForensicDetector
 from src.preprocessing import process_video
 
 
 if HAS_TORCH:
-    from src.model import ResNeXtLSTMDetector
-    import torch
-    import torchvision.transforms as transforms
-
     transform_pipeline = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224, 224)),
@@ -114,7 +112,7 @@ def predict_video(
     video_path,
     model=None,
     device=None,
-    num_frames=16,
+    num_frames=32,
     backbone_type="resnet18"
 ):
 
@@ -133,10 +131,7 @@ def predict_video(
             "No usable face frames were extracted from the video."
         )
 
-    if HAS_TORCH and isinstance(
-        model,
-        torch.nn.Module
-    ):
+    if HAS_TORCH and isinstance(model, torch.nn.Module):
 
         frame_tensors = []
 
@@ -155,7 +150,7 @@ def predict_video(
 
         with torch.no_grad():
 
-            output = model(video_tensor)
+            output = cast(ResNeXtLSTMDetector, model)(video_tensor)
 
         if isinstance(output, tuple):
 

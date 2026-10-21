@@ -1,6 +1,8 @@
 # 🛡️ DeepDetect AI - Enterprise Deepfake Video Detection System
 
-State-of-the-art Spatial-Temporal Deepfake Forensics Center built with **ResNet-18 CNN** spatial feature projection and **Bidirectional LSTM** temporal sequence modeling.
+State-of-the-art Spatial-Temporal Deepfake Forensics Center built with a
+**fine-tuned ResNet-18 CNN** spatial feature projection and **Bidirectional
+LSTM** temporal sequence modeling.
 
 Featuring a **Cyber-Forensics Dark Command Center** web application with full artifact inspection, side-by-side comparative forensics, batch threat scanning, and cryptographic PDF audit reports.
 
@@ -70,3 +72,23 @@ streamlit run app.py
 - `app.py`: Modern Cyberpunk & Sentinel Dark Theme Streamlit frontend application.
 - `deepfake_detection.ipynb`: Documented step-by-step training and evaluation notebook.
 - `confusion_matrix.png`: Model validation confusion matrix plot.
+
+## Accuracy-focused training defaults
+
+The training pipeline uses a longer 32-frame temporal sequence, 25 maximum
+epochs, and early backbone unfreezing after the first epoch. The pretrained
+ResNet-18 backbone is fine-tuned with a learning rate 10x lower than the
+temporal and classification heads. Training-only augmentation includes
+horizontal flips, small affine pose changes, lighting/color variation,
+occasional blur, and grayscale conversion. Early stopping (patience 6) still
+restores the best validation-loss checkpoint to limit overfitting.
+
+Run a full training pass with:
+
+```bash
+python -m src.train
+```
+
+Use a CUDA-enabled PyTorch installation for practical training time. The
+Streamlit app defaults to the same 32-frame sequence and also exposes 40- and
+48-frame choices for longer videos.

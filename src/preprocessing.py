@@ -2,12 +2,19 @@ import os
 import cv2
 import numpy as np
 from PIL import Image
+import torch
+from torch.utils.data import Dataset
+import torchvision.transforms as transforms
 
 # OpenCV Haar Cascade for face detection
-HAAR_CASCADE_PATH = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+HAAR_CASCADE_PATH = os.path.join(
+    os.path.dirname(cv2.__file__ or ""),
+    "data",
+    "haarcascade_frontalface_default.xml"
+)
 face_cascade = cv2.CascadeClassifier(HAAR_CASCADE_PATH)
 
-def extract_frames(video_path, num_frames=16):
+def extract_frames(video_path, num_frames=32):
     """
     Extracts evenly spaced frames from a video file.
     
@@ -107,7 +114,7 @@ def detect_and_crop_face(frame_rgb, target_size=(224, 224), margin_ratio=0.2, la
     return resized, (x, y, w, h)
 
 
-def process_video(video_path, num_frames=16, target_size=(224, 224)):
+def process_video(video_path, num_frames=32, target_size=(224, 224)):
     """
     Extracts frames and crops faces to produce a normalized face sequence.
     
@@ -142,19 +149,30 @@ def normalize_face_sequence(face_sequence_np):
 
 
 try:
-    import torch
-    from torch.utils.data import Dataset
-    import torchvision.transforms as transforms
-
-    # Training transform with data augmentation to combat overfitting
+    # Training-only augmentation improves robustness to compression, lighting,
+    # small pose changes, and frame crops while preserving face structure.
     train_transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224, 224)),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10),
-        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.1),
-        transforms.RandomGrayscale(p=0.05),
-        transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0)),
+        transforms.RandomApply([
+            transforms.RandomAffine(
+                degrees=8,
+                translate=(0.05, 0.05),
+                scale=(0.95, 1.05),
+                shear=4
+            )
+        ], p=0.6),
+        transforms.ColorJitter(
+            brightness=0.25,
+            contrast=0.25,
+            saturation=0.2,
+            hue=0.08
+        ),
+        transforms.RandomApply([
+            transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5))
+        ], p=0.25),
+        transforms.RandomGrayscale(p=0.03),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -169,22 +187,20 @@ try:
 
     # Keep backward compatibility alias
     default_transform = test_transform
-    _BaseDataset = Dataset
     HAS_TORCH = True
 except Exception:
     train_transform = None
     test_transform = None
     default_transform = None
-    _BaseDataset = object
     HAS_TORCH = False
 
 
-class DeepfakeVideoDataset(_BaseDataset):
+class DeepfakeVideoDataset(Dataset):
     """
     PyTorch Dataset for loading and batching deepfake video sequences.
     Uses augmented transforms during training and clean transforms during evaluation.
     """
-    def __init__(self, video_items, num_frames=16, transform=None, is_training=False):
+    def __init__(self, video_items, num_frames=32, transform=None, is_training=False):
         self.video_items = video_items
         self.num_frames = num_frames
         self.is_training = is_training
@@ -218,4 +234,3 @@ class DeepfakeVideoDataset(_BaseDataset):
         if HAS_TORCH:
             return video_tensor, torch.tensor(label, dtype=torch.float32)
         return video_tensor, label
-

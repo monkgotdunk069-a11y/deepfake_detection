@@ -1,4 +1,3 @@
-import os
 import hashlib
 import cv2
 import numpy as np
@@ -44,11 +43,21 @@ def compute_fft_spectrum(image):
     magnitude_spectrum = 20 * np.log(np.abs(fshift) + 1e-6)
 
     # Normalize to 0-255 for display
-    norm_spec = cv2.normalize(magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX)
-    norm_spec = np.uint8(norm_spec)
+    norm_spec = np.empty_like(magnitude_spectrum, dtype=np.float64)
+    cv2.normalize(
+        magnitude_spectrum,
+        norm_spec,
+        0,
+        255,
+        cv2.NORM_MINMAX
+    )
+    norm_spec = np.ascontiguousarray(norm_spec, dtype=np.uint8)
     
     # Apply a high-contrast colormap for forensic visual inspection
-    colored_spec = cv2.applyColorMap(norm_spec, cv2.COLORMAP_MAGMA)
+    colored_spec = cv2.applyColorMap(
+        norm_spec,
+        cv2.COLORMAP_MAGMA
+    )
     colored_spec = cv2.cvtColor(colored_spec, cv2.COLOR_BGR2RGB)
     
     return Image.fromarray(colored_spec)
@@ -78,8 +87,7 @@ def compute_ela(image, quality=90, scale=15):
     diff = ImageChops.difference(image, compressed)
     
     # Enhance difference brightness for visibility
-    extrema = diff.getextrema()
-    max_diff = max([ex[1] for ex in extrema])
+    max_diff = float(np.asarray(diff, dtype=np.float32).max())
     if max_diff == 0:
         max_diff = 1
     multiplier = scale
@@ -88,6 +96,7 @@ def compute_ela(image, quality=90, scale=15):
     # Apply colormap to highlight artifacts
     diff_np = np.array(diff)
     gray_diff = cv2.cvtColor(diff_np, cv2.COLOR_RGB2GRAY)
+    gray_diff = np.ascontiguousarray(gray_diff, dtype=np.uint8)
     ela_colored = cv2.applyColorMap(gray_diff, cv2.COLORMAP_INFERNO)
     ela_colored = cv2.cvtColor(ela_colored, cv2.COLOR_BGR2RGB)
 
@@ -111,7 +120,10 @@ def compute_laplacian_sharpness(image):
     variance = float(laplacian.var())
     
     # Edge map visualization
-    laplacian_abs = np.uint8(np.absolute(laplacian))
+    laplacian_abs = np.ascontiguousarray(
+        np.absolute(laplacian),
+        dtype=np.uint8
+    )
     laplacian_colored = cv2.applyColorMap(laplacian_abs, cv2.COLORMAP_VIRIDIS)
     laplacian_colored = cv2.cvtColor(laplacian_colored, cv2.COLOR_BGR2RGB)
     

@@ -213,8 +213,8 @@ def generate_forensic_pdf(
             
             # Pad if needed
             while len(header_row) < cols_per_row:
-                header_row.append("")
-                val_row.append("")
+                header_row.append(Paragraph("", style_body))
+                val_row.append(Paragraph("", style_body))
             score_rows.append(header_row)
             score_rows.append(val_row)
 
