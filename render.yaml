@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: deepdetect-api
+    runtime: python
+    plan: free
+    buildCommand: >-
+      python -m pip install --upgrade pip &&
+      python -m pip install -r requirements.txt &&
+      npm ci --prefix frontend &&
+      npm run build --prefix frontend
+    startCommand: python -m uvicorn src.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: DEEPDETECT_MODEL
+        value: mobilenet_xgboost

@@ -1,10 +1,13 @@
 # DeepDetect AI - Project Dependencies
+# Render/Linux runtime: Python 3.11, CPU-only inference.
+# The frontend is built separately by render.yaml.
 # Core Deep Learning & Computer Vision
 torch>=2.0.0
 torchvision>=0.15.0
 opencv-python-headless>=4.10.0
 Pillow>=9.5.0
 numpy>=1.24.0
+scipy>=1.10.0
 
 # Face detection (SCRFD is required for production inference)
 insightface>=0.7.3

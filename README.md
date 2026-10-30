@@ -100,6 +100,28 @@ npm run dev
 
 To serve the built frontend from FastAPI instead, run `npm run build` in `frontend`, then start the API without `--reload`; the API serves `frontend/dist` when it exists.
 
+### Deploy on Render
+
+This repository includes [`render.yaml`](./render.yaml), which installs the
+Python dependencies, builds the React frontend, and starts FastAPI on Render's
+dynamic `$PORT`. In Render, choose **New Blueprint Instance** and select this
+repository, or create a Web Service with:
+
+```text
+Build command:
+python -m pip install --upgrade pip && python -m pip install -r requirements.txt && npm ci --prefix frontend && npm run build --prefix frontend
+
+Start command:
+python -m uvicorn src.api:app --host 0.0.0.0 --port $PORT
+```
+
+Set the health check path to `/api/health`. The trained
+`artifacts_full/mobilenet_xgboost.joblib` file must be committed to the
+repository or downloaded during the Render build; otherwise the API cannot
+load the selected production artifact. Render's free filesystem is ephemeral,
+so use persistent storage if uploaded videos and analysis history must survive
+deploys or restarts.
+
 ### Importing videos
 
 In the **DeepDetect workspace**, choose either a local file or a direct link to a
