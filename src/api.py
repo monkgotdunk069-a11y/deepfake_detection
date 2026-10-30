@@ -863,6 +863,18 @@ def delete_analysis(
 # Frontend SPA catch-all
 # ---------------------------------------------------------------------------
 
+@app.get("/")
+def frontend_root():
+    if FRONTEND_DIST.is_dir() and (FRONTEND_DIST / "index.html").is_file():
+        return FileResponse(FRONTEND_DIST / "index.html")
+    return {
+        "service": "DeepDetect API",
+        "status": "ok",
+        "message": "Frontend build is not present. Run npm run build in frontend.",
+        "health": "/api/health",
+    }
+
+
 if FRONTEND_DIST.is_dir():
     assets = FRONTEND_DIST / "assets"
     if assets.is_dir():

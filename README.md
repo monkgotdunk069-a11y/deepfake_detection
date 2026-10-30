@@ -112,7 +112,7 @@ Build command:
 python -m pip install --upgrade pip && python -m pip install -r requirements.txt && npm ci --prefix frontend && npm run build --prefix frontend
 
 Start command:
-python -m uvicorn src.api:app --host 0.0.0.0 --port $PORT
+gunicorn src.api:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 ```
 
 Set the health check path to `/api/health`. The trained
