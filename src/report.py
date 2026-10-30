@@ -1,6 +1,7 @@
 import os
 import io
 import datetime
+from xml.sax.saxutils import escape
 from PIL import Image
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -119,7 +120,10 @@ def generate_forensic_pdf(
 
     # 2. Executive Verdict Box
     is_fake = result.get('is_fake', False)
-    verdict_text = "CRITICAL WARNING: SYNTHETIC DEEPFAKE DETECTED" if is_fake else "VERIFIED AUTHENTIC: NO DEEPFAKE DETECTED"
+    verdict_text = result.get(
+        'assessment',
+        "ELEVATED MANIPULATION SIGNAL" if is_fake else "NO STRONG MANIPULATION SIGNAL"
+    )
     verdict_color = c_danger if is_fake else c_success
     bg_verdict = colors.HexColor("#FEF2F2") if is_fake else colors.HexColor("#F0FDF4")
     border_verdict = c_danger if is_fake else c_success
@@ -129,9 +133,9 @@ def generate_forensic_pdf(
     fake_p = result.get('fake_probability', 0.0) * 100.0
     
     verdict_details = Paragraph(
-        f"<b>Classification Confidence:</b> {conf:.2f}% &nbsp;&nbsp;|&nbsp;&nbsp; "
-        f"<b>Synthetic Manipulation Score:</b> {fake_p:.2f}% &nbsp;&nbsp;|&nbsp;&nbsp; "
-        f"<b>Target Media:</b> {video_meta.get('filename', 'Unknown')}",
+        f"<b>Model score:</b> {conf:.2f}% &nbsp;&nbsp;|&nbsp;&nbsp; "
+        f"<b>Synthetic score:</b> {fake_p:.2f}% &nbsp;&nbsp;|&nbsp;&nbsp; "
+        f"<b>Target media:</b> {escape(str(video_meta.get('filename', 'Unknown')))}",
         ParagraphStyle('VerdictSub', parent=style_body, alignment=1)
     )
 
@@ -163,6 +167,10 @@ def generate_forensic_pdf(
             Paragraph(f"<b>Analyzed Sequence:</b> {result.get('num_frames', 0)} frames", style_body)
         ],
         [
+            Paragraph(f"<b>Input source:</b> {escape(str(video_meta.get('source', 'Not recorded'))[:240])}", style_body),
+            Paragraph("<b>Interpretation:</b> Automated screening only", style_body)
+        ],
+        [
             Paragraph(f"<b>SHA-256 Hash:</b> <font face='Courier' size=7>{video_meta.get('sha256', 'N/A')}</font>", style_body),
             Paragraph(f"<b>MD5 Hash:</b> <font face='Courier' size=7>{video_meta.get('md5', 'N/A')}</font>", style_body)
         ],
@@ -189,16 +197,32 @@ def generate_forensic_pdf(
     elements.append(Paragraph("<b>2. FORENSIC METHODOLOGY & NEURAL PIPELINE</b>", style_h2))
     method_text = (
         "The submitted media was processed using an end-to-end <b>Spatial-Temporal Deepfake Forensic Architecture</b>. "
-        "Uniform temporal sampling extracted facial regions via multi-scale Haar cascade detection. Spatial feature maps "
+        "Uniform temporal sampling extracted facial regions via a pluggable multi-scale detector "
+        "(InsightFace SCRFD with an explicit development-only fallback). Spatial feature maps "
         "were extracted per frame using a deep <b>ResNet-18 Convolutional Neural Network</b> (512-dim bottleneck). "
         "Inter-frame temporal anomalies and facial coherence were analyzed using a <b>Bidirectional Long Short-Term Memory (Bi-LSTM)</b> "
-        "network. Final probability classification incorporates frame-level loss integration with calibrated sigmoid activation."
+        "network. Final probability classification incorporates frame-level loss integration with calibrated sigmoid activation. "
+        "<b>Grad-CAM</b> saliency maps were generated for flagged frames to highlight spatial regions that most influenced the model decision."
     )
     elements.append(Paragraph(method_text, style_body))
+    elements.append(Spacer(1, 6))
+
+    # Suspicious frame count callout
+    sus_count = result.get('suspicious_count', 0)
+    if sus_count > 0:
+        sus_color = c_danger
+        sus_text = f"<b>{sus_count} suspicious frame(s)</b> were identified based on model score, inter-frame MSE spikes, and score jumps."
+    else:
+        sus_color = c_success
+        sus_text = "No suspicious frames were flagged above the detection threshold."
+    elements.append(Paragraph(
+        f"<font color='{sus_color.hexval()}'>{sus_text}</font>",
+        ParagraphStyle('SusNote', parent=style_body, spaceBefore=4)
+    ))
     elements.append(Spacer(1, 14))
 
     # 5. Temporal Probabilities Summary
-    elements.append(Paragraph("<b>3. TEMPORAL ANOMALY SEQUENCE RECORD</b>", style_h2))
+    elements.append(Paragraph("<b>3. SAMPLED MODEL SCORE SEQUENCE</b>", style_h2))
     frame_scores = result.get('frame_probabilities', [])
     if frame_scores:
         cols_per_row = 8
@@ -272,8 +296,8 @@ def generate_forensic_pdf(
     # 7. Forensic Sign-off Block
     sign_data = [
         [
-            Paragraph("<b>CHAIN OF CUSTODY VERIFICATION:</b><br/>This digital media was hashed and audited under automated tamper-evident protocol.", style_body),
-            Paragraph("<b>CERTIFIED FORENSIC ENGINE:</b><br/>DeepDetect ResNet-18 Bi-LSTM v2.4<br/>Status: <b>VERIFIED & SIGNED</b>", style_body)
+            Paragraph("<b>FILE IDENTIFICATION:</b><br/>SHA-256 identifies the exact analyzed bytes. It does not establish the truth or authenticity of the depicted event.", style_body),
+            Paragraph("<b>AUTOMATED ANALYSIS:</b><br/>Model screening output for human review.<br/>Not a legal or forensic certification.", style_body)
         ]
     ]
     sign_table = Table(sign_data, colWidths=[4.2 * inch, 3.0 * inch])
@@ -282,6 +306,13 @@ def generate_forensic_pdf(
         ('TOPPADDING', (0, 0), (-1, -1), 8),
     ]))
     elements.append(sign_table)
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph(
+        "<b>Limitations:</b> Model scores are not calibrated proof that a video is real or manipulated. "
+        "Sampled face scores are not validated manipulation timestamps. Results can be wrong on unseen "
+        "sources, compression levels, or manipulation methods; review the original media and supporting evidence.",
+        style_body
+    ))
 
     # Build PDF document
     doc.build(elements)

@@ -1,0 +1,25 @@
+{
+  "seed": 42,
+  "device": "cpu",
+  "winner": "mobilenet_xgboost",
+  "results": {
+    "resnet18_bilstm": {
+      "accuracy": 0.5,
+      "balanced_accuracy": 0.5,
+      "f1": 0.6666666666666666,
+      "roc_auc": 0.4
+    },
+    "efficientnet_v2_bilstm": {
+      "accuracy": 0.5,
+      "balanced_accuracy": 0.5,
+      "f1": 0.6666666666666666,
+      "roc_auc": 0.5
+    },
+    "mobilenet_xgboost": {
+      "accuracy": 0.6,
+      "balanced_accuracy": 0.6,
+      "f1": 0.7142857142857143,
+      "roc_auc": 0.43999999999999995
+    }
+  }
+}

@@ -8,13 +8,8 @@ from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
 
-# OpenCV Haar Cascade for face detection
-HAAR_CASCADE_PATH = os.path.join(
-    os.path.dirname(cv2.__file__ or ""),
-    "data",
-    "haarcascade_frontalface_default.xml"
-)
-face_cascade = cv2.CascadeClassifier(HAAR_CASCADE_PATH)
+# Use the pluggable face detector (SCRFD, with explicit development fallback)
+from src.face_detector import detect_and_crop_face  # noqa: F401 — re-exported for callers
 
 def extract_frames(video_path, num_frames=32):
     """
@@ -66,54 +61,8 @@ def extract_frames(video_path, num_frames=32):
     return frames[:num_frames]
 
 
-def detect_and_crop_face(frame_rgb, target_size=(224, 224), margin_ratio=0.2, last_box=None):
-    """
-    Detects the primary face in a frame, adds margin, and crops/resizes it.
-    
-    Args:
-        frame_rgb (np.ndarray): Input RGB frame (H, W, 3).
-        target_size (tuple): Output (width, height).
-        margin_ratio (float): Ratio to expand the bounding box for boundary context.
-        last_box (tuple): Optional previous bounding box (x, y, w, h) for temporal continuity.
-        
-    Returns:
-        tuple: (cropped_face_rgb np.ndarray, bounding_box tuple)
-    """
-    gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
-    faces = face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=4,
-        minSize=(40, 40)
-    )
-    
-    h_img, w_img, _ = frame_rgb.shape
-    
-    if len(faces) > 0:
-        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        x, y, w, h = faces[0]
-    elif last_box is not None:
-        x, y, w, h = last_box
-    else:
-        w = int(min(h_img, w_img) * 0.7)
-        h = w
-        x = (w_img - w) // 2
-        y = (h_img - h) // 2
-        
-    margin_x = int(w * margin_ratio)
-    margin_y = int(h * margin_ratio)
-    
-    x1 = max(0, x - margin_x)
-    y1 = max(0, y - margin_y)
-    x2 = min(w_img, x + w + margin_x)
-    y2 = min(h_img, y + h + margin_y)
-    
-    cropped = frame_rgb[y1:y2, x1:x2]
-    if cropped.size == 0:
-        cropped = frame_rgb
-        
-    resized = cv2.resize(cropped, target_size, interpolation=cv2.INTER_LINEAR)
-    return resized, (x, y, w, h)
+# detect_and_crop_face is now provided by src.face_detector (imported above).
+# The function signature is identical so all callers continue to work unchanged.
 
 
 def process_video(video_path, num_frames=32, target_size=(224, 224)):

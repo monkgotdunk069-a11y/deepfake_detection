@@ -11,6 +11,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.model import HAS_TORCH, ResNeXtLSTMDetector, SpatialTemporalForensicDetector
+from src.models_zoo import EfficientV2LSTMDetector, MobileXGBDetector
 from src.preprocessing import process_video
 
 
@@ -50,6 +51,9 @@ def load_detector_model(
     print(f"Using device: {device}")
     print(f"Loading model: {model_path}")
     print(f"Backbone: {backbone_type}")
+
+    if backbone_type in {"mobilenet_xgb", "mobilenet_xgboost", "mobilenet"}:
+        return MobileXGBDetector.load(model_path, pretrained=True), device
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(
@@ -102,12 +106,18 @@ def load_detector_model(
         for key in state_dict
     )
 
-    model = ResNeXtLSTMDetector(
-        backbone_type=backbone_type,
-        hidden_dim=hidden_dim,
-        pretrained=False,
-        use_temporal_attention=uses_attention
-    )
+    if backbone_type in {"efficientnet_v2", "efficientnet_v2_bilstm", "efficientnet"}:
+        model = EfficientV2LSTMDetector(
+            hidden_dim=hidden_dim,
+            pretrained=False,
+        )
+    else:
+        model = ResNeXtLSTMDetector(
+            backbone_type="resnet18",
+            hidden_dim=hidden_dim,
+            pretrained=False,
+            use_temporal_attention=uses_attention
+        )
 
     model.load_state_dict(
         state_dict,
@@ -146,7 +156,9 @@ def predict_video(
             "No usable face frames were extracted from the video."
         )
 
-    if HAS_TORCH and isinstance(model, torch.nn.Module):
+    if isinstance(model, MobileXGBDetector):
+        fake_prob, frame_probs = model.analyze_sequence(face_sequence_np)
+    elif HAS_TORCH and isinstance(model, torch.nn.Module):
 
         frame_tensors = []
 
@@ -165,7 +177,7 @@ def predict_video(
 
         with torch.no_grad():
 
-            output = cast(ResNeXtLSTMDetector, model)(video_tensor)
+            output = model(video_tensor)
 
         if isinstance(output, tuple):
 

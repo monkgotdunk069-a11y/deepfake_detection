@@ -2,17 +2,32 @@
 # Core Deep Learning & Computer Vision
 torch>=2.0.0
 torchvision>=0.15.0
-opencv-python-headless==4.10.0.84
+opencv-python-headless>=4.10.0
 Pillow>=9.5.0
 numpy>=1.24.0
+
+# Face detection (SCRFD is required for production inference)
+insightface>=0.7.3
+onnxruntime>=1.16.0
 
 # Machine Learning & Metrics
 scikit-learn>=1.3.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
+xgboost>=2.0.0            # MobileNet+XGBoost ensemble
+joblib>=1.3.0             # Model serialization for XGBoost
 
-# Web Application UI & Visualization
-streamlit>=1.28.0
+# Web Application & API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.0.0
+yt-dlp>=2025.1.15
+
+# Auth
+bcrypt>=4.0.0             # bcrypt password hashing (stdlib fallback included)
+
+# Data & Visualization
 pandas>=2.0.0
 plotly>=5.17.0
 

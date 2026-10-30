@@ -1,8 +1,9 @@
 # 🛡️ DeepDetect AI - Enterprise Deepfake Video Detection System
 
 State-of-the-art Spatial-Temporal Deepfake Forensics Center built with a
-**fine-tuned ResNet-18 CNN** spatial feature projection and **Bidirectional
-LSTM** temporal sequence modeling.
+tested **InsightFace SCRFD** face detector and selectable **ResNet-18 +
+Bidirectional LSTM**, **EfficientNet-V2 + BiLSTM**, or **MobileNet-V3 +
+XGBoost** video classifiers.
 
 Featuring a **Cyber-Forensics Dark Command Center** web application with full artifact inspection, side-by-side comparative forensics, batch threat scanning, and cryptographic PDF audit reports.
 
@@ -12,9 +13,9 @@ Featuring a **Cyber-Forensics Dark Command Center** web application with full ar
 
 ### 1. 🎯 Deep Forensic Scanner
 - **One-Click Quick-Load Presets**: Instantly load and test synthetic deepfakes (`Celeb-synthesis`), authentic human subjects (`Celeb-real`), or streaming media (`YouTube-real`).
-- **Drag & Drop Custom Upload**: Supports `.mp4`, `.avi`, `.mov`, `.webm`, `.mpeg4`.
+- **Video Inputs**: Upload `.mp4`, `.avi`, `.mov`, `.webm`, `.mpeg`, `.mpg`, or `.m4v` files (up to 500 MB), or import a public video page/direct video-file URL supported by yt-dlp.
 - **Evidence Telemetry HUD**: Resolution, framerate, video duration, file size, SHA-256 and MD5 cryptographic hashes.
-- **Dynamic Threat Verdict**: Glowing visual verdict badge (`CRITICAL: DEEPFAKE DETECTED` vs `VERIFIED: AUTHENTIC HUMAN MEDIA`).
+- **Qualified Assessment**: Screening signal and score with clear uncertainty language; no automatic authenticity proof.
 - **Interactive Semi-Circular Gauge**: Real-time synthetic manipulation probability score with adjustable sensitivity threshold.
 - **Temporal Anomaly Timeline**: Frame-by-frame anomaly area chart identifying the exact temporal moments of facial distortion.
 - **Facial Sequence Reel**: Interactive grid of cropped facial keyframes with per-frame anomaly risk badges.
@@ -68,7 +69,8 @@ The current evaluation confusion matrix contains 45 test videos:
 
 The detector identifies most fake videos in this evaluation, but it also
 misclassifies authentic videos as fake (13 false positives). Treat predictions
-as an automated screening signal rather than definitive forensic proof.
+as an automated screening signal rather than definitive forensic proof. A low
+score does not verify that the depicted event is authentic.
 
 ---
 
@@ -77,28 +79,119 @@ as an automated screening signal rather than definitive forensic proof.
 ### 0. Install Dependencies
 ```bash
 pip install -r requirements.txt
+cd frontend
+npm install
+cd ..
 ```
 
-### 1. Launch the Forensic Web Application
+### 1. Launch the API
 ```bash
-streamlit run app.py
+uvicorn src.api:app --reload
 ```
-- Open `http://localhost:8501` in your browser.
-- Adjust the **Sensitivity Alert Threshold** and **Temporal Sequence Depth** in the sidebar.
-- Click **⚡ EXECUTE FORENSIC SCAN** or use the quick preset buttons.
+
+### 2. Launch the React application
+In a second terminal:
+```bash
+cd frontend
+npm run dev
+```
+- Open `http://localhost:5173` in your browser. The Vite development server proxies API requests to FastAPI on port 8000.
+- Select a local video or paste a public video page/direct public video-file URL, then review the queued analysis and results. Public pages supported by yt-dlp may be resolved automatically; login-protected, private, DRM, and age-restricted pages are not bypassed.
+
+To serve the built frontend from FastAPI instead, run `npm run build` in `frontend`, then start the API without `--reload`; the API serves `frontend/dist` when it exists.
+
+### Importing videos
+
+In the **DeepDetect workspace**, choose either a local file or a direct link to a
+public video file. Link import supports direct HTTP(S) media responses, with
+public-address checks, redirect validation, and a 500 MB limit. A page URL
+from a streaming or social platform is not necessarily a media URL; links that
+require sign-in, DRM, or platform-specific extraction are not fetched. Upload
+an authorised export or use an official integration when available.
+
+The analysis is a screening result, not proof or a legal verdict. Sampled face
+scores are review cues, not validated timestamps pinpointing manipulation.
 
 ---
 
 ## 📂 Project Structure
-- `src/preprocessing.py`: Uniform temporal sampling and Haar cascade face extraction.
+- `src/preprocessing.py`: Uniform temporal sampling and pluggable face extraction.
+- `src/face_detector.py`: InsightFace SCRFD detector; Haar is an explicit development-only fallback.
 - `src/model.py`: ResNet-18 + Bi-LSTM spatial-temporal neural detector architecture.
-- `src/inference.py`: Model loader and sequence probability inference engine.
+- `src/models_zoo.py`: Multi-model zoo featuring EfficientNet-V2-S + BiLSTM and MobileNet-V3 + XGBoost.
+- `src/inference.py`: Model loader, Grad-CAM integration, and sequence probability inference engine.
+- `src/gradcam.py`: Explainability layer computing gradient-weighted class activation maps on suspect keyframes.
 - `src/forensics.py`: 2D FFT spectrum, Error Level Analysis (ELA), Laplacian sharpness, and video hashing.
-- `src/report.py`: ReportLab engine for cryptographic forensic audit PDF reports.
+- `src/auth.py`: JWT-based user authentication, password hashing, and user account management.
+- `src/database.py`: Durable SQLite persistence layer for jobs, user accounts, and batch workflows.
+- `src/ingestion.py`: High-concurrency video validation and batch ingest pipeline.
+- `src/report.py`: ReportLab engine for cryptographic forensic audit PDF reports with Grad-CAM overlays.
 - `src/train.py`: Training loop with class-imbalance weighting and BCE loss.
-- `app.py`: Modern Cyberpunk & Sentinel Dark Theme Streamlit frontend application.
+- `src/benchmark.py`: Reproducible training, held-out evaluation, artifact saving, and winner selection for all three model candidates.
+- `frontend/`: Modern React 19 + TypeScript + Vite user interface with dark cybersecurity aesthetics.
+- `src/api.py`: FastAPI endpoints for auth, batch uploads, single video analysis, Grad-CAM previews, and PDF export.
+- `tests/`: Automated test suite covering training balance, forensics, auth, and database persistence.
 - `deepfake_detection.ipynb`: Documented step-by-step training and evaluation notebook.
 - `confusion_matrix.png`: Model validation confusion matrix plot.
+
+## Upgrade and model selection
+
+Install the production face detector dependencies from `requirements.txt`, then
+run the benchmark from the notebook or terminal:
+
+```bash
+python -m src.benchmark --data-dir data --output-dir artifacts_full --limit-per-class 150 --epochs 1 --num-frames 8 --no-pretrained
+```
+
+The command uses the same stratified train/validation/test split for every
+candidate and writes `artifacts_full/benchmark_results.json` plus the trained model
+artifacts. The winner is selected by held-out balanced accuracy, with ROC-AUC
+as the tie-breaker. Configure the API with the selected artifact:
+
+```powershell
+$env:DEEPDETECT_MODEL = "mobilenet_xgboost"
+$env:DEEPDETECT_MODEL_PATH = "artifacts_full\mobilenet_xgboost.joblib"
+uvicorn src.api:app --reload
+```
+
+The API automatically selects the full winner when `artifacts_full/` exists.
+`/api/models` reports the active model and artifact slots. `/api/health`
+reports the active SCRFD detector. Set `DEEPDETECT_ALLOW_HAAR=1` only for local development when
+InsightFace model assets are unavailable; production comparisons should never
+silently fall back to Haar.
+
+### Local benchmark result
+
+The completed full balanced CPU benchmark used 150 real and 150 fake videos,
+8 SCRFD face frames per video, one training epoch per candidate, and an
+identical held-out split. The selected winner is **MobileNet-V3 + XGBoost**:
+
+| Model | Accuracy | Balanced accuracy | F1 | ROC-AUC |
+|---|---:|---:|---:|---:|
+| ResNet-18 + BiLSTM | 49.33% | 50.00% | 0.661 | 0.548 |
+| EfficientNet-V2 + BiLSTM | 54.67% | 55.19% | 0.673 | 0.647 |
+| MobileNet-V3 + XGBoost | **66.67%** | **66.71%** | **0.675** | **0.671** |
+
+The result is stored in `artifacts_full/benchmark_results.json`, and the
+backend automatically uses the selected artifact when that file exists. It is
+still a project evaluation rather than a publication-quality claim; increase
+the dataset and epochs for formal research reporting.
+
+The production MobileNet artifact was subsequently refit with pretrained
+ImageNet MobileNet-V3 features before deployment. This avoids using random
+backbone features in the CPU-safe comparison run. Its independent held-out
+check was 60.00% accuracy, 60.14% balanced accuracy, F1 0.634, and ROC-AUC
+0.659. Predictions remain screening signals and can still be wrong on
+individual videos.
+
+## Application architecture
+
+The main web application pairs a modern React 19 + TypeScript frontend with a high-performance FastAPI backend:
+- **Authentication**: JWT access and refresh token flow with encrypted session cookies/headers.
+- **Persistence**: Durable SQLite database (`deepdetect.db`) with Write-Ahead Logging (WAL) ensuring jobs survive server restarts.
+- **Explainability**: Frame-level anomaly scanning and automated Grad-CAM saliency heatmaps highlighting manipulated facial regions.
+- **Batch Processing**: Parallel multi-video processing with per-file status updates and aggregate analytics.
+- **Reporting**: Automated tamper-evident PDF dossier generation for case management and chain of custody.
 
 ## Accuracy-focused training defaults
 
@@ -112,7 +205,7 @@ checkpoint with the best validation accuracy, using validation loss as a
 tie-breaker, to limit overfitting.
 
 The reported best checkpoint used 32 sampled face frames per video and
-restored epoch 7 with **85.00% validation accuracy**. The Streamlit
+restored epoch 7 with **85.00% validation accuracy**. The API
 application supports temporal sequence depths from 8 to 48 frames, including
 32, 40, and 48-frame options. If the frame count is changed, retrain and
 reevaluate the model before comparing accuracy results.
@@ -124,5 +217,5 @@ python -m src.train
 ```
 
 Use a CUDA-enabled PyTorch installation for practical training time. The
-Streamlit app defaults to the same 32-frame sequence and also exposes
+API defaults to the same 32-frame sequence and also exposes
 additional frame-depth choices for longer videos.
