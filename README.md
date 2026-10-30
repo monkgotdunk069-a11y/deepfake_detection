@@ -102,25 +102,38 @@ To serve the built frontend from FastAPI instead, run `npm run build` in `fronte
 
 ### Deploy on Render
 
-This repository includes [`render.yaml`](./render.yaml), which installs the
-Python dependencies, builds the React frontend, and starts FastAPI on Render's
-dynamic `$PORT`. In Render, choose **New Blueprint Instance** and select this
-repository, or create a Web Service with:
+This repository includes [`render.yaml`](./render.yaml), which creates a
+FastAPI API service and a separate Render Static Site for the React frontend.
+In Render, choose **New Blueprint Instance** and select this repository.
+After the Blueprint is created, set the frontend service's `VITE_API_URL`
+environment variable to the public API service URL, for example
+`https://deepdetect-api.onrender.com`.
+
+For the API service, the settings are:
 
 ```text
 Build command:
-python -m pip install --upgrade pip && python -m pip install -r requirements.txt && npm ci --prefix frontend && npm run build --prefix frontend
+python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
 Start command:
 gunicorn src.api:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 ```
 
-Set the health check path to `/api/health`. The trained
+Set the API health check path to `/api/health`. The trained
 `artifacts_full/mobilenet_xgboost.joblib` file must be committed to the
 repository or downloaded during the Render build; otherwise the API cannot
 load the selected production artifact. Render's free filesystem is ephemeral,
 so use persistent storage if uploaded videos and analysis history must survive
 deploys or restarts.
+
+For the frontend Static Site, use:
+
+```text
+Root directory: frontend
+Build command: npm ci && npm run build
+Publish directory: dist
+Environment variable: VITE_API_URL=https://deepdetect-api.onrender.com
+```
 
 ### Importing videos
 

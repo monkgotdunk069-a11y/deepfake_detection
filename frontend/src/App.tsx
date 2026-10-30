@@ -54,7 +54,7 @@ type Page = "landing" | "login" | "register" | "reset" | "dashboard";
 // Constants
 // ---------------------------------------------------------------------------
 
-const API = "";
+const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const allowed = ["mp4", "mov", "avi", "webm", "mpeg", "mpg", "m4v"];
 const AUTH_KEY = "dd_auth";
 

@@ -5,15 +5,22 @@ services:
     plan: free
     buildCommand: >-
       python -m pip install --upgrade pip &&
-      python -m pip install -r requirements.txt &&
-      npm ci --prefix frontend &&
-      npm run build --prefix frontend
+      python -m pip install -r requirements.txt
     startCommand: gunicorn src.api:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 1 --timeout 120
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
-      - key: NODE_VERSION
-        value: 20.19.0
       - key: DEEPDETECT_MODEL
         value: mobilenet_xgboost
+      - key: DEEPDETECT_CORS_ORIGINS
+        value: https://deepdetect-frontend.onrender.com
+
+  - type: static
+    name: deepdetect-frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: frontend/dist
+    rootDir: frontend
+    envVars:
+      - key: VITE_API_URL
+        sync: false
