@@ -299,7 +299,7 @@ function Dashboard({ auth, onLogout }: { auth: AuthState; onLogout: () => void }
   const [file, setFile] = useState<File | null>(null);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [url, setUrl] = useState("");
-  const [frames, setFrames] = useState(32);
+  const [frames, setFrames] = useState(16);
   const [threshold, setThreshold] = useState(0.5);
   const [job, setJob] = useState<Job | null>(null);
   const [batch, setBatch] = useState<BatchSummary | null>(null);
@@ -316,8 +316,22 @@ function Dashboard({ auth, onLogout }: { auth: AuthState; onLogout: () => void }
     const t = window.setInterval(async () => {
       try {
         const res = await fetch(`${API}/api/analyses/${job.id}`, { headers: authHeaders(auth) });
-        if (res.ok) setJob(await res.json());
-      } catch { setError("API stopped responding."); }
+        if (!res.ok) {
+          let detail = `The analysis service returned HTTP ${res.status}.`;
+          try {
+            const body = await res.json();
+            if (typeof body.detail === "string") detail = body.detail;
+          } catch { /* use the HTTP status when the response is not JSON */ }
+          setError(detail);
+          setJob({ ...job, status: "failed", error: detail });
+          return;
+        }
+        setJob(await res.json());
+      } catch {
+        const detail = "The analysis service stopped responding. Check the Render API service logs.";
+        setError(detail);
+        setJob({ ...job, status: "failed", error: detail });
+      }
     }, 1800);
     return () => window.clearInterval(t);
   }, [job, auth]);

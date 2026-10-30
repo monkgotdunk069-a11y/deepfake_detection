@@ -522,7 +522,7 @@ def available_models():
 async def create_upload_analysis(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    num_frames: int = Query(32, ge=8, le=48),
+    num_frames: int = Query(16, ge=8, le=48),
     current_user: Optional[dict] = Depends(get_optional_user),
 ):
     del background_tasks
@@ -566,7 +566,7 @@ async def create_upload_analysis(
 async def create_batch_analysis(
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
-    num_frames: int = Query(32, ge=8, le=48),
+    num_frames: int = Query(16, ge=8, le=48),
     current_user: Optional[dict] = Depends(get_optional_user),
 ):
     """Upload up to 10 videos in one request; returns a batch_id + list of job stubs."""
