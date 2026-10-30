@@ -19,8 +19,8 @@ services:
   - type: static
     name: deepdetect-frontend
     buildCommand: npm ci && npm run build
-    staticPublishPath: frontend/dist
+    staticPublishPath: dist
     rootDir: frontend
     envVars:
       - key: VITE_API_URL
-        sync: false
+        value: https://deepdetect-api.onrender.com

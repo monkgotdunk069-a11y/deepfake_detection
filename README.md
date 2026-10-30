@@ -105,9 +105,10 @@ To serve the built frontend from FastAPI instead, run `npm run build` in `fronte
 This repository includes [`render.yaml`](./render.yaml), which creates a
 FastAPI API service and a separate Render Static Site for the React frontend.
 In Render, choose **New Blueprint Instance** and select this repository.
-After the Blueprint is created, set the frontend service's `VITE_API_URL`
-environment variable to the public API service URL, for example
-`https://deepdetect-api.onrender.com`.
+The Blueprint sets the frontend service's `VITE_API_URL` to
+`https://deepdetect-api.onrender.com`. If Render assigns a different public
+API URL, update that environment variable on the frontend Static Site and
+redeploy it.
 
 For the API service, the settings are:
 
@@ -131,7 +132,7 @@ For the frontend Static Site, use:
 ```text
 Root directory: frontend
 Build command: npm ci && npm run build
-Publish directory: dist
+Publish directory: dist (relative to the `frontend` root directory)
 Environment variable: VITE_API_URL=https://deepdetect-api.onrender.com
 ```
 
