@@ -120,7 +120,7 @@ def _startup() -> None:
 
 class UrlAnalysisRequest(BaseModel):
     url: str
-    num_frames: int = 32
+    num_frames: int = 8
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +173,15 @@ def _start_job(
         user_id=user_id,
         batch_id=batch_id,
     )
-    worker_pool.submit(_analyze_job, job_id)
     return job_id
+
+
+def _queue_analysis(job_id: str) -> None:
+    """Submit inference after the HTTP response has been sent."""
+    try:
+        worker_pool.submit(_analyze_job, job_id)
+    except RuntimeError as exc:
+        db.set_job_failed(job_id, f"Analysis worker is unavailable: {exc}")
 
 
 def _image_data_url(image: Image.Image) -> str:
@@ -522,10 +529,9 @@ def available_models():
 async def create_upload_analysis(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    num_frames: int = Query(16, ge=8, le=48),
+    num_frames: int = Query(8, ge=8, le=48),
     current_user: Optional[dict] = Depends(get_optional_user),
 ):
-    del background_tasks
     filename = Path(file.filename or "video.mp4").name
     suffix = Path(filename).suffix.lower()
     if suffix not in VIDEO_EXTENSIONS:
@@ -555,6 +561,7 @@ async def create_upload_analysis(
         path.unlink(missing_ok=True)
         raise HTTPException(422, str(exc)) from exc
 
+    background_tasks.add_task(_queue_analysis, job_id)
     return db._public_job(db.get_job(job_id))
 
 
@@ -566,11 +573,10 @@ async def create_upload_analysis(
 async def create_batch_analysis(
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
-    num_frames: int = Query(16, ge=8, le=48),
+    num_frames: int = Query(8, ge=8, le=48),
     current_user: Optional[dict] = Depends(get_optional_user),
 ):
     """Upload up to 10 videos in one request; returns a batch_id + list of job stubs."""
-    del background_tasks
     if len(files) > 10:
         raise HTTPException(422, "Maximum 10 videos per batch.")
     if len(files) == 0:
@@ -602,6 +608,7 @@ async def create_batch_analysis(
                     _start_job, str(path), filename, "Batch upload",
                     num_frames, user_id, batch_id,
                 )
+                background_tasks.add_task(_queue_analysis, job_id)
                 job_stubs.append(db._public_job(db.get_job(job_id)))
         except Exception:
             path.unlink(missing_ok=True)
@@ -629,6 +636,7 @@ def get_batch(batch_id: str):
 @app.post("/api/analyses/url", status_code=202)
 async def create_url_analysis(
     request: UrlAnalysisRequest,
+    background_tasks: BackgroundTasks,
     current_user: Optional[dict] = Depends(get_optional_user),
 ):
     if not 8 <= request.num_frames <= 48:
@@ -648,6 +656,7 @@ async def create_url_analysis(
     except (ValueError, OSError) as exc:
         raise HTTPException(422, str(exc)) from exc
 
+    background_tasks.add_task(_queue_analysis, job_id)
     return db._public_job(db.get_job(job_id))
 
 
