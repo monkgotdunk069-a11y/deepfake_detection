@@ -26,6 +26,7 @@ uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 pydantic>=2.0.0
 yt-dlp>=2025.1.15
+gunicorn>=21.0.0
 
 # Auth
 bcrypt>=4.0.0             # bcrypt password hashing (stdlib fallback included)
