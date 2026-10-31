@@ -3,8 +3,9 @@ import {
   Activity, AlertTriangle, ArrowUpRight, Check, ChevronDown, CircleHelp,
   Clapperboard, Eye, EyeOff, FileVideo2, Fingerprint, Film, FlaskConical,
   Link2, LoaderCircle, LogIn, LogOut, Mail, MapPin, Shield, ShieldAlert,
-  Sparkles, Upload, User, X, Zap, Files, FileDown
+  Sparkles, Upload, User, X, Zap, Files, FileDown, Video, Radio
 } from "lucide-react";
+import LiveWebcamDetector from "./LiveWebcamDetector";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,6 +74,29 @@ function authHeaders(auth: AuthState): Record<string, string> {
   return auth ? { Authorization: `Bearer ${auth.access_token}` } : {};
 }
 
+async function safeJson(res: Response, fallback = "API request failed."): Promise<any> {
+  const text = await res.text();
+  if (!text) {
+    if (!res.ok) {
+      throw new Error(
+        res.status === 502 || res.status === 504 || res.status === 500
+          ? "Backend API server is unavailable or not running on port 8000. Start it via run_server.bat."
+          : `Server returned HTTP ${res.status}.`
+      );
+    }
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      !res.ok
+        ? "Backend API server returned an unreadable response. Make sure the backend is running."
+        : fallback
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // App root
 // ---------------------------------------------------------------------------
@@ -129,12 +153,12 @@ function Landing({ auth, onLogin, onRegister, onDashboard }: { auth: AuthState; 
 
         <section className="features-grid" id="features">
           {[
+            { icon: <Video size={22} />, title: "Live Webcam Detection", desc: "Real-time face tracking via InsightFace SCRFD with continuous 32-frame MobileNet-V3/XGBoost sequence screening over WebSockets." },
             { icon: <Shield size={22} />, title: "Grad-CAM Explanations", desc: "Saliency maps highlight which regions drove the model decision on each suspicious frame." },
             { icon: <MapPin size={22} />, title: "Suspicious Timestamps", desc: "Automatically flag frames with score spikes, MSE jumps, and neighbour discontinuities." },
             { icon: <Files size={22} />, title: "Batch Uploads", desc: "Analyse up to 10 videos simultaneously. Track progress across the whole batch." },
             { icon: <Fingerprint size={22} />, title: "Forensic PDF Reports", desc: "Evidence-grade PDFs with SHA-256/MD5 hashes, metadata, and Grad-CAM captures." },
-            { icon: <FlaskConical size={22} />, title: "Multiple Models", desc: "ResNet-18 baseline, EfficientNet-V2, and MobileNet+XGBoost ensemble available." },
-            { icon: <Zap size={22} />, title: "SCRFD / RetinaFace", desc: "State-of-the-art face detection replaces Haar Cascade for sharper face crops." },
+            { icon: <Zap size={22} />, title: "InsightFace SCRFD", desc: "State-of-the-art face detection replaces Haar Cascade for sharper face crops." },
           ].map(f => (
             <article key={f.title} className="feature-card">
               <div className="feature-icon">{f.icon}</div>
@@ -149,7 +173,7 @@ function Landing({ auth, onLogin, onRegister, onDashboard }: { auth: AuthState; 
           <h2>From video to forensic evidence.</h2>
           <div className="how-cards">
             <article><span>01</span><h3>Add a source</h3><p>Upload files, paste a direct URL, or submit a batch. File stays on your machine.</p></article>
-            <article><span>02</span><h3>AI screening</h3><p>ResNet-18 + BiLSTM scans faces frame-by-frame, flagging suspicious timestamps with Grad-CAM.</p></article>
+            <article><span>02</span><h3>AI screening</h3><p>InsightFace SCRFD and MobileNet + XGBoost scan faces frame-by-frame, flagging suspicious manipulation cues.</p></article>
             <article><span>03</span><h3>Export evidence</h3><p>Download a PDF report with hashes, metadata, frame scores, and model explanations.</p></article>
           </div>
         </section>
@@ -184,7 +208,7 @@ function LoginPage({ onAuth, onBack, onGoRegister, onGoReset }: { onAuth: (a: Au
     e.preventDefault(); setErr(""); setBusy(true);
     try {
       const res = await fetch(`${API}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
-      const data = await res.json();
+      const data = await safeJson(res, "Login failed.");
       if (!res.ok) throw new Error(data.detail || "Login failed.");
       onAuth(data);
     } catch (ex) { setErr(ex instanceof Error ? ex.message : "Login failed."); }
@@ -216,7 +240,7 @@ function RegisterPage({ onAuth, onBack }: { onAuth: (a: AuthState) => void; onBa
     e.preventDefault(); setErr(""); setBusy(true);
     try {
       const res = await fetch(`${API}/api/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, username, password }) });
-      const data = await res.json();
+      const data = await safeJson(res, "Registration failed.");
       if (!res.ok) throw new Error(data.detail || "Registration failed.");
       onAuth(data);
     } catch (ex) { setErr(ex instanceof Error ? ex.message : "Registration failed."); }
@@ -246,7 +270,7 @@ function ResetPage({ onBack }: { onBack: () => void }) {
     e.preventDefault(); setErr(""); setBusy(true);
     try {
       const res = await fetch(`${API}/api/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
-      const data = await res.json();
+      const data = await safeJson(res, "Password reset request failed.");
       if (!res.ok) throw new Error(data.detail);
       setDevToken(data._dev_token || "");
       setStep("confirm");
@@ -258,7 +282,8 @@ function ResetPage({ onBack }: { onBack: () => void }) {
     e.preventDefault(); setErr(""); setBusy(true);
     try {
       const res = await fetch(`${API}/api/auth/password-reset/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, new_password: newPw }) });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.detail); }
+      const d = await safeJson(res, "Reset confirmation failed.");
+      if (!res.ok) throw new Error(d.detail);
       setStep("done");
     } catch (ex) { setErr(ex instanceof Error ? ex.message : "Reset failed."); }
     finally { setBusy(false); }
@@ -295,7 +320,7 @@ function ResetPage({ onBack }: { onBack: () => void }) {
 // ---------------------------------------------------------------------------
 
 function Dashboard({ auth, onLogout }: { auth: AuthState; onLogout: () => void }) {
-  const [mode, setMode] = useState<"upload" | "link" | "batch">("upload");
+  const [mode, setMode] = useState<"upload" | "link" | "batch" | "live">("upload");
   const [file, setFile] = useState<File | null>(null);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [url, setUrl] = useState("");
@@ -436,7 +461,13 @@ function Dashboard({ auth, onLogout }: { auth: AuthState; onLogout: () => void }
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="#" aria-label="DeepDetect home"><span className="brand-icon"><Shield size={19} strokeWidth={2.2} /></span><span>deepdetect<span className="brand-ai">.ai</span></span></a>
-        <nav className="topnav"><a className="nav-current" href="#analyze">Workspace</a><a href="#how-it-works">About</a></nav>
+        <nav className="topnav">
+          <button type="button" className={mode !== "live" ? "nav-current" : ""} onClick={() => setMode("upload")}>Workspace</button>
+          <button type="button" className={mode === "live" ? "nav-current" : ""} onClick={() => setMode("live")}>
+            <Radio size={12} className="live-badge-dot pulse" /> Live Detection
+          </button>
+          <a href="#how-it-works">About</a>
+        </nav>
         <div className="topbar-actions">
           {auth && <span className="user-chip"><User size={14} />{auth.username}</span>}
           <button className="btn-ghost" onClick={onLogout}><LogOut size={15} /> Sign out</button>
@@ -444,119 +475,144 @@ function Dashboard({ auth, onLogout }: { auth: AuthState; onLogout: () => void }
       </header>
 
       <main id="top">
-        <section className="hero hero-compact">
-          <div className="eyebrow"><Sparkles size={14} /> VIDEO AUTHENTICITY REVIEW</div>
-          <h1>Look closer at the<br /><span>video in front of you.</span></h1>
-        </section>
+        {mode === "live" ? (
+          <>
+            <section className="hero hero-compact">
+              <div className="eyebrow"><Sparkles size={14} /> REAL-TIME WEBCAM FORENSICS · 32-FRAME SEQUENCE MODEL</div>
+              <h1>Live Deepfake<br /><span>Detection & Face Tracking</span></h1>
+              <p>Continuous real-time face detection with InsightFace SCRFD and temporal sequence screening with MobileNet-V3 + XGBoost.</p>
+            </section>
 
-        <section className="workspace-grid" id="analyze">
-          <form className="panel intake-panel" onSubmit={submit}>
-            <div className="panel-heading">
-              <div><div className="step-label">01 <span>·</span> ADD VIDEO</div><h2>Choose your source</h2></div>
-              <div className="heading-icon"><FileVideo2 size={19} /></div>
+            <div className="source-tabs source-tabs-4" style={{ maxWidth: 520, margin: "0 auto 18px" }} role="tablist">
+              <button type="button" role="tab" aria-selected={false} onClick={() => { setMode("upload"); setError(""); }}><Upload size={16} /> Upload</button>
+              <button type="button" role="tab" aria-selected={false} onClick={() => { setMode("link"); setError(""); }}><Link2 size={16} /> URL</button>
+              <button type="button" role="tab" aria-selected={false} onClick={() => { setMode("batch"); setError(""); }}><Files size={16} /> Batch</button>
+              <button type="button" role="tab" aria-selected={true} className="selected" onClick={() => { setMode("live"); setError(""); }}><Video size={16} /> <span className="live-badge-dot pulse" /> Live Webcam</button>
             </div>
 
-            <div className="source-tabs" role="tablist">
-              <button type="button" role="tab" aria-selected={mode === "upload"} className={mode === "upload" ? "selected" : ""} onClick={() => { setMode("upload"); setError(""); }}><Upload size={16} /> Upload</button>
-              <button type="button" role="tab" aria-selected={mode === "link"} className={mode === "link" ? "selected" : ""} onClick={() => { setMode("link"); setError(""); }}><Link2 size={16} /> URL</button>
-              <button type="button" role="tab" aria-selected={mode === "batch"} className={mode === "batch" ? "selected" : ""} onClick={() => { setMode("batch"); setError(""); }}><Files size={16} /> Batch</button>
-            </div>
+            <LiveWebcamDetector
+              threshold={threshold}
+              onThresholdChange={setThreshold}
+            />
+          </>
+        ) : (
+          <>
+            <section className="hero hero-compact">
+              <div className="eyebrow"><Sparkles size={14} /> VIDEO AUTHENTICITY REVIEW</div>
+              <h1>Look closer at the<br /><span>video in front of you.</span></h1>
+            </section>
 
-            {mode === "upload" && <>
-              <input ref={inputRef} className="hidden-input" type="file" accept={allowed.map(e => `.${e}`).join(",")} onChange={(ev: ChangeEvent<HTMLInputElement>) => setChosenFile(ev.target.files?.[0])} />
-              <div className={`dropzone ${dragging ? "dragging" : ""} ${file ? "has-file" : ""}`}
-                onDragOver={(ev: DragEvent<HTMLDivElement>) => { ev.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
-                onDrop={(ev: DragEvent<HTMLDivElement>) => { ev.preventDefault(); setDragging(false); setChosenFile(ev.dataTransfer.files?.[0]); }}
-                onClick={() => inputRef.current?.click()} role="button" tabIndex={0} onKeyDown={ev => ev.key === "Enter" && inputRef.current?.click()}>
-                <div className="upload-icon">{file ? <Check size={20} /> : <Upload size={20} />}</div>
-                {file ? <><strong className="file-name">{file.name}</strong><span>{fileMeta?.ext} · {fileMeta?.size}</span><button type="button" className="remove-file" onClick={ev => { ev.stopPropagation(); setFile(null); }}><X size={15} /></button></> : <><strong>Drop a video here</strong><span>or <em>browse files</em></span></>}
-              </div>
-              <div className="format-row"><span>MP4</span><span>MOV</span><span>AVI</span><span>WEBM</span><span>+ more</span><small>Up to 500 MB</small></div>
-            </>}
-
-            {mode === "link" && <div className="link-box">
-              <div className="link-label-row"><label htmlFor="video-url">Video page or direct video URL</label><button type="button" className="paste-button" onClick={async () => { try { setUrl(await navigator.clipboard.readText()); setError(""); } catch { setError("Clipboard access was blocked. Paste the link into the field manually."); } }}>Paste link</button></div>
-              <div className="url-input-wrap"><Link2 size={17} /><input id="video-url" type="url" value={url} onChange={ev => setUrl(ev.target.value)} placeholder="https://example.com/video.mp4 or public video page" /></div>
-              <div className="link-hint"><Shield size={14} /> Public pages and direct media links are supported when the host exposes a downloadable video.</div>
-            </div>}
-
-            {mode === "batch" && <div className="batch-box">
-              <input ref={batchRef} className="hidden-input" type="file" multiple accept={allowed.map(e => `.${e}`).join(",")} onChange={(ev: ChangeEvent<HTMLInputElement>) => ev.target.files && addBatchFiles(Array.from(ev.target.files))} />
-              <div className="batch-drop" onClick={() => batchRef.current?.click()} role="button" tabIndex={0}>
-                <Files size={24} /><strong>Add videos ({batchFiles.length}/10)</strong><span>Click to browse or drop files here</span>
-              </div>
-              {batchFiles.length > 0 && <ul className="batch-list">
-                {batchFiles.map((f, i) => (
-                  <li key={i}><span className="batch-fname">{f.name}</span><span>{formatBytes(f.size)}</span><button type="button" onClick={() => setBatchFiles(prev => prev.filter((_, j) => j !== i))}><X size={13} /></button></li>
-                ))}
-              </ul>}
-            </div>}
-
-            <div className="settings-row">
-              <div><label htmlFor="sample-depth">Sample depth</label><span>Frames used by the model</span></div>
-              <div className="select-wrap"><select id="sample-depth" value={frames} onChange={ev => setFrames(Number(ev.target.value))}>{[8, 16, 24, 32, 40, 48].map(n => <option key={n} value={n}>{n} frames</option>)}</select><ChevronDown size={14} /></div>
-            </div>
-
-            {error && <div className="error-message"><ShieldAlert size={16} /> {error}</div>}
-            <button className="analyze-button" type="submit" disabled={busy || job?.status === "queued" || job?.status === "running"}>
-              {busy ? <><LoaderCircle className="spin" size={17} />Starting…</> : <><Activity size={17} />Analyze video <ArrowUpRight size={16} /></>}
-            </button>
-            <div className="privacy-line"><Fingerprint size={14} /><span>File hash recorded. Files stay on this machine.</span></div>
-          </form>
-
-          <section className="panel result-panel" aria-live="polite">
-            <div className="panel-heading">
-              <div><div className="step-label">02 <span>·</span> REVIEW</div><h2>Analysis results</h2></div>
-              <div className="heading-actions">
-                {batch && job && <button className="btn-ghost btn-sm" onClick={() => setJob(null)}><Files size={14} /> Batch list ({batch.total})</button>}
-                {job?.status === "completed" && <><span className="complete-pill"><Check size={13} /> Complete</span><button className="btn-ghost btn-sm" onClick={downloadReport}><FileDown size={14} /> PDF</button></>}
-              </div>
-            </div>
-
-            {/* Batch progress */}
-            {batch && !job && <BatchProgress batch={batch} onSelectJob={setJob} auth={auth} threshold={threshold} />}
-
-            {/* Batch switcher bar when a job from batch is selected */}
-            {batch && job && (
-              <div className="batch-switcher-bar">
-                <span className="batch-switcher-title"><Files size={13} /> Batch items:</span>
-                <div className="batch-chips-scroll">
-                  {batch.jobs.map((bj, i) => (
-                    <button
-                      key={bj.id}
-                      type="button"
-                      className={`batch-chip ${job.id === bj.id ? "selected" : ""} ${bj.status}`}
-                      onClick={() => setJob(bj)}
-                      disabled={bj.status !== "completed"}
-                    >
-                      <span className="chip-num">#{i + 1}</span>
-                      <span className="chip-name">{bj.filename}</span>
-                      {bj.result && <b className={bj.result.fake_score >= threshold ? "score-high" : ""}>{Math.round(bj.result.fake_score * 100)}%</b>}
-                    </button>
-                  ))}
+            <section className="workspace-grid" id="analyze">
+              <form className="panel intake-panel" onSubmit={submit}>
+                <div className="panel-heading">
+                  <div><div className="step-label">01 <span>·</span> ADD VIDEO</div><h2>Choose your source</h2></div>
+                  <div className="heading-icon"><FileVideo2 size={19} /></div>
                 </div>
-              </div>
-            )}
 
-            {/* Single job states */}
-            {!job && !batch && <div className="empty-result"><div className="empty-art"><div className="art-frame"><Film size={35} /><span className="art-spark s1" /><span className="art-spark s2" /><span className="art-spark s3" /></div></div><strong>Your review will appear here</strong><span>Add a video to see its screening result.</span><div className="empty-checks"><span><Check size={14} /> File fingerprint</span><span><Check size={14} /> Model screening</span><span><Check size={14} /> Suspicious timestamps</span><span><Check size={14} /> Grad-CAM overlays</span></div></div>}
-            {job && (job.status === "queued" || job.status === "running") && <div className="processing-state"><div className="processing-orbit"><LoaderCircle className="spin" size={30} /></div><strong>{job.status === "queued" ? "In the analysis queue" : "Reviewing sampled frames"}</strong><span>Results appear when processing finishes.</span><div className="progress-track"><i /></div><small>{job.filename}</small></div>}
-            {job?.status === "failed" && <div className="failed-state"><ShieldAlert size={28} /><strong>Analysis couldn't finish</strong><span>{job.error || "Please try again."}</span></div>}
+                <div className="source-tabs source-tabs-4" role="tablist">
+                  <button type="button" role="tab" aria-selected={mode === "upload"} className={mode === "upload" ? "selected" : ""} onClick={() => { setMode("upload"); setError(""); }}><Upload size={16} /> Upload</button>
+                  <button type="button" role="tab" aria-selected={mode === "link"} className={mode === "link" ? "selected" : ""} onClick={() => { setMode("link"); setError(""); }}><Link2 size={16} /> URL</button>
+                  <button type="button" role="tab" aria-selected={mode === "batch"} className={mode === "batch" ? "selected" : ""} onClick={() => { setMode("batch"); setError(""); }}><Files size={16} /> Batch</button>
+                  <button type="button" role="tab" aria-selected={false} onClick={() => { setMode("live"); setError(""); }}><Video size={16} /> <span className="live-badge-dot pulse" /> Live</button>
+                </div>
 
-            {job?.status === "completed" && job.result && <>
-              {/* Result tabs */}
-              <div className="result-tabs">
-                <button className={activeTab === "results" ? "selected" : ""} onClick={() => setActiveTab("results")}><Activity size={14} /> Scores</button>
-                <button className={activeTab === "suspicious" ? "selected" : ""} onClick={() => setActiveTab("suspicious")}><AlertTriangle size={14} /> Suspicious {(job.result?.suspicious?.suspicious_count ?? 0) > 0 && <span className="badge-count">{job.result?.suspicious?.suspicious_count}</span>}</button>
-                <button className={activeTab === "gradcam" ? "selected" : ""} onClick={() => setActiveTab("gradcam")}><Eye size={14} /> Grad-CAM</button>
-              </div>
+                {mode === "upload" && <>
+                  <input ref={inputRef} className="hidden-input" type="file" accept={allowed.map(e => `.${e}`).join(",")} onChange={(ev: ChangeEvent<HTMLInputElement>) => setChosenFile(ev.target.files?.[0])} />
+                  <div className={`dropzone ${dragging ? "dragging" : ""} ${file ? "has-file" : ""}`}
+                    onDragOver={(ev: DragEvent<HTMLDivElement>) => { ev.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
+                    onDrop={(ev: DragEvent<HTMLDivElement>) => { ev.preventDefault(); setDragging(false); setChosenFile(ev.dataTransfer.files?.[0]); }}
+                    onClick={() => inputRef.current?.click()} role="button" tabIndex={0} onKeyDown={ev => ev.key === "Enter" && inputRef.current?.click()}>
+                    <div className="upload-icon">{file ? <Check size={20} /> : <Upload size={20} />}</div>
+                    {file ? <><strong className="file-name">{file.name}</strong><span>{fileMeta?.ext} · {fileMeta?.size}</span><button type="button" className="remove-file" onClick={ev => { ev.stopPropagation(); setFile(null); }}><X size={15} /></button></> : <><strong>Drop a video here</strong><span>or <em>browse files</em></span></>}
+                  </div>
+                  <div className="format-row"><span>MP4</span><span>MOV</span><span>AVI</span><span>WEBM</span><span>+ more</span><small>Up to 500 MB</small></div>
+                </>}
 
-              {activeTab === "results" && <ResultsTab job={job} threshold={threshold} onThresholdChange={setThreshold} flagged={flagged} score={score} auth={auth} />}
-              {activeTab === "suspicious" && <SuspiciousTab report={job.result?.suspicious} fps={job.metadata.fps} />}
-              {activeTab === "gradcam" && <GradCamTab report={job.result?.suspicious} />}
-            </>}
-          </section>
-        </section>
+                {mode === "link" && <div className="link-box">
+                  <div className="link-label-row"><label htmlFor="video-url">Video page or direct video URL</label><button type="button" className="paste-button" onClick={async () => { try { setUrl(await navigator.clipboard.readText()); setError(""); } catch { setError("Clipboard access was blocked. Paste the link into the field manually."); } }}>Paste link</button></div>
+                  <div className="url-input-wrap"><Link2 size={17} /><input id="video-url" type="url" value={url} onChange={ev => setUrl(ev.target.value)} placeholder="https://example.com/video.mp4 or public video page" /></div>
+                  <div className="link-hint"><Shield size={14} /> Public pages and direct media links are supported when the host exposes a downloadable video.</div>
+                </div>}
+
+                {mode === "batch" && <div className="batch-box">
+                  <input ref={batchRef} className="hidden-input" type="file" multiple accept={allowed.map(e => `.${e}`).join(",")} onChange={(ev: ChangeEvent<HTMLInputElement>) => ev.target.files && addBatchFiles(Array.from(ev.target.files))} />
+                  <div className="batch-drop" onClick={() => batchRef.current?.click()} role="button" tabIndex={0}>
+                    <Files size={24} /><strong>Add videos ({batchFiles.length}/10)</strong><span>Click to browse or drop files here</span>
+                  </div>
+                  {batchFiles.length > 0 && <ul className="batch-list">
+                    {batchFiles.map((f, i) => (
+                      <li key={i}><span className="batch-fname">{f.name}</span><span>{formatBytes(f.size)}</span><button type="button" onClick={() => setBatchFiles(prev => prev.filter((_, j) => j !== i))}><X size={13} /></button></li>
+                    ))}
+                  </ul>}
+                </div>}
+
+                <div className="settings-row">
+                  <div><label htmlFor="sample-depth">Sample depth</label><span>Frames used by the model</span></div>
+                  <div className="select-wrap"><select id="sample-depth" value={frames} onChange={ev => setFrames(Number(ev.target.value))}>{[8, 16, 24, 32, 40, 48].map(n => <option key={n} value={n}>{n} frames</option>)}</select><ChevronDown size={14} /></div>
+                </div>
+
+                {error && <div className="error-message"><ShieldAlert size={16} /> {error}</div>}
+                <button className="analyze-button" type="submit" disabled={busy || job?.status === "queued" || job?.status === "running"}>
+                  {busy ? <><LoaderCircle className="spin" size={17} />Starting…</> : <><Activity size={17} />Analyze video <ArrowUpRight size={16} /></>}
+                </button>
+                <div className="privacy-line"><Fingerprint size={14} /><span>File hash recorded. Files stay on this machine.</span></div>
+              </form>
+
+              <section className="panel result-panel" aria-live="polite">
+                <div className="panel-heading">
+                  <div><div className="step-label">02 <span>·</span> REVIEW</div><h2>Analysis results</h2></div>
+                  <div className="heading-actions">
+                    {batch && job && <button className="btn-ghost btn-sm" onClick={() => setJob(null)}><Files size={14} /> Batch list ({batch.total})</button>}
+                    {job?.status === "completed" && <><span className="complete-pill"><Check size={13} /> Complete</span><button className="btn-ghost btn-sm" onClick={downloadReport}><FileDown size={14} /> PDF</button></>}
+                  </div>
+                </div>
+
+                {/* Batch progress */}
+                {batch && !job && <BatchProgress batch={batch} onSelectJob={setJob} auth={auth} threshold={threshold} />}
+
+                {/* Batch switcher bar when a job from batch is selected */}
+                {batch && job && (
+                  <div className="batch-switcher-bar">
+                    <span className="batch-switcher-title"><Files size={13} /> Batch items:</span>
+                    <div className="batch-chips-scroll">
+                      {batch.jobs.map((bj, i) => (
+                        <button
+                          key={bj.id}
+                          type="button"
+                          className={`batch-chip ${job.id === bj.id ? "selected" : ""} ${bj.status}`}
+                          onClick={() => setJob(bj)}
+                          disabled={bj.status !== "completed"}
+                        >
+                          <span className="chip-num">#{i + 1}</span>
+                          <span className="chip-name">{bj.filename}</span>
+                          {bj.result && <b className={bj.result.fake_score >= threshold ? "score-high" : ""}>{Math.round(bj.result.fake_score * 100)}%</b>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Single job states */}
+                {!job && !batch && <div className="empty-result"><div className="empty-art"><div className="art-frame"><Film size={35} /><span className="art-spark s1" /><span className="art-spark s2" /><span className="art-spark s3" /></div></div><strong>Your review will appear here</strong><span>Add a video to see its screening result.</span><div className="empty-checks"><span><Check size={14} /> File fingerprint</span><span><Check size={14} /> Model screening</span><span><Check size={14} /> Suspicious timestamps</span><span><Check size={14} /> Grad-CAM overlays</span></div></div>}
+                {job && (job.status === "queued" || job.status === "running") && <div className="processing-state"><div className="processing-orbit"><LoaderCircle className="spin" size={30} /></div><strong>{job.status === "queued" ? "In the analysis queue" : "Reviewing sampled frames"}</strong><span>Results appear when processing finishes.</span><div className="progress-track"><i /></div><small>{job.filename}</small></div>}
+                {job?.status === "failed" && <div className="failed-state"><ShieldAlert size={28} /><strong>Analysis couldn't finish</strong><span>{job.error || "Please try again."}</span></div>}
+
+                {job?.status === "completed" && job.result && <>
+                  {/* Result tabs */}
+                  <div className="result-tabs">
+                    <button className={activeTab === "results" ? "selected" : ""} onClick={() => setActiveTab("results")}><Activity size={14} /> Scores</button>
+                    <button className={activeTab === "suspicious" ? "selected" : ""} onClick={() => setActiveTab("suspicious")}><AlertTriangle size={14} /> Suspicious {(job.result?.suspicious?.suspicious_count ?? 0) > 0 && <span className="badge-count">{job.result?.suspicious?.suspicious_count}</span>}</button>
+                    <button className={activeTab === "gradcam" ? "selected" : ""} onClick={() => setActiveTab("gradcam")}><Eye size={14} /> Grad-CAM</button>
+                  </div>
+
+                  {activeTab === "results" && <ResultsTab job={job} threshold={threshold} onThresholdChange={setThreshold} flagged={flagged} score={score} auth={auth} />}
+                  {activeTab === "suspicious" && <SuspiciousTab report={job.result?.suspicious} fps={job.metadata.fps} />}
+                  {activeTab === "gradcam" && <GradCamTab report={job.result?.suspicious} />}
+                </>}
+              </section>
+            </section>
+          </>
+        )}
       </main>
       <footer><a className="brand footer-brand" href="#"><span className="brand-icon"><Shield size={16} /></span><span>deepdetect<span className="brand-ai">.ai</span></span></a><span>Video screening for human review</span><span>Local prototype · No authenticity guarantee</span></footer>
     </div>

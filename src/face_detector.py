@@ -76,8 +76,13 @@ class _SCRFDBackend:
         import insightface  # noqa: F401 – guard import
         from insightface.app import FaceAnalysis
 
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_insight = os.path.join(project_root, ".insightface")
+        root_dir = local_insight if os.path.isdir(local_insight) else os.path.expanduser("~/.insightface")
+
         self._app = FaceAnalysis(
             name="buffalo_sc",
+            root=root_dir,
             allowed_modules=["detection"],
             providers=["CPUExecutionProvider"],
         )

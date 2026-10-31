@@ -211,12 +211,34 @@ class MobileXGBDetector:
             n = len(face_sequence_np)
             return 0.5, [0.5] * n
 
-        feat = self.extract_features(face_sequence_np).reshape(1, -1)
-        proba = self.xgb.predict_proba(feat)[0, 1]
+        import torchvision.transforms as T
+        transform = T.Compose([
+            T.ToPILImage(),
+            T.Resize((224, 224)),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        tensors = torch.stack([transform(f) for f in face_sequence_np])  # (N, 3, 224, 224)
+        with torch.no_grad():
+            feats = self.backbone(tensors).cpu().numpy()  # (N, 960)
 
-        # Frame scores: per-frame feature distances from dataset mean (crude)
+        agg_feat = np.concatenate([feats.mean(axis=0), feats.std(axis=0)], axis=0).reshape(1, -1)
+        proba = float(self.xgb.predict_proba(agg_feat)[0, 1])
+
+        # Dynamic per-frame scores modulated by feature variance
         n = len(face_sequence_np)
-        frame_scores = [float(proba)] * n
+        if n > 1:
+            mean_feat = feats.mean(axis=0, keepdims=True)
+            dists = np.linalg.norm(feats - mean_feat, axis=1)
+            dist_std = dists.std()
+            if dist_std > 1e-6:
+                norm_dists = (dists - dists.mean()) / dist_std
+                frame_scores = [float(np.clip(proba + 0.08 * d, 0.0, 1.0)) for d in norm_dists]
+            else:
+                frame_scores = [float(proba)] * n
+        else:
+            frame_scores = [float(proba)] * n
+
         return float(proba), frame_scores
 
     def save(self, path: str) -> None:

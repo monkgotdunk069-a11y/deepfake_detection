@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
+import logging
 import os
 import tempfile
 import time
@@ -24,6 +26,8 @@ from fastapi import (
     Query,
     Request,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +37,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from src import database as db
+from src.live_detector import LiveDetectionSession
 from src.auth import (
     PasswordResetConfirm,
     PasswordResetRequest,
@@ -67,16 +72,16 @@ _cors_origins = [
     origin.strip()
     for origin in os.getenv(
         "DEEPDETECT_CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000,http://127.0.0.1:3000",
     ).split(",")
     if origin.strip()
 ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_origin_regex=r"https://[a-zA-Z0-9.-]+\.onrender\.com",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$|^https://[a-zA-Z0-9.-]+\.onrender\.com$",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "PUT"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -519,6 +524,75 @@ def available_models():
             ),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Live Deepfake Detection (WebCam WebSocket)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/live/status")
+def live_status():
+    """Configuration and model status for live webcam deepfake detection."""
+    return {
+        "status": "ready",
+        "model": "MobileNetV3 + XGBoost",
+        "detector": _get_detector_name(),
+        "sequence_frames": 32,
+        "input_size": "224x224",
+        "ws_endpoint": "/api/ws/live",
+    }
+
+
+@app.websocket("/api/ws/live")
+@app.websocket("/ws/live")
+async def websocket_live_detection(websocket: WebSocket):
+    """
+    WebSocket endpoint for live webcam deepfake detection.
+    Receives frame images in base64 format, performs real-time face detection with SCRFD,
+    maintains a 32-frame sliding temporal buffer, and runs continuous MobileNetV3 + XGBoost inference.
+    """
+    await websocket.accept()
+    session = LiveDetectionSession(target_frames=32)
+    try:
+        while True:
+            message = await websocket.receive_text()
+            try:
+                data = json.loads(message)
+            except Exception:
+                await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
+                continue
+
+            msg_type = data.get("type", "frame")
+            if msg_type == "frame":
+                payload = data.get("image")
+                if not payload:
+                    await websocket.send_json({"type": "error", "message": "Missing image payload"})
+                    continue
+
+                frame_rgb = await asyncio.to_thread(session.decode_image, payload)
+                if frame_rgb is None:
+                    await websocket.send_json({"type": "error", "message": "Failed to decode frame image"})
+                    continue
+
+                res = await asyncio.to_thread(session.process_frame, frame_rgb)
+                await websocket.send_json(res)
+
+            elif msg_type == "reset":
+                session.reset()
+                await websocket.send_json({
+                    "type": "reset_ack",
+                    "message": "Live 32-frame sequence buffer reset successfully",
+                })
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong", "timestamp": time.time()})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logging.getLogger(__name__).warning("WebSocket live session error: %s", exc)
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
