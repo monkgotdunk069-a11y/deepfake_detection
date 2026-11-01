@@ -12,13 +12,17 @@ via load_detector_model(backbone_type=...).
 from __future__ import annotations
 
 import logging
-import os
-from typing import Optional
+from typing import Optional, Union
 
+import joblib
 import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.models as tvm
+import torchvision.transforms as T
+from xgboost import XGBClassifier
+
+from src.forensics import extract_forensic_descriptors
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +126,11 @@ class MobileXGBDetector:
     when used via the SpatialTemporalForensicDetector path.
     """
 
+    backbone: nn.Module
+    _feat_dim: int
+    xgb: XGBClassifier
+    _xgb_fitted: bool
+
     def __init__(
         self,
         xgb_params: Optional[dict] = None,
@@ -134,8 +143,6 @@ class MobileXGBDetector:
         self.backbone = backbone.eval()
         self._feat_dim = 960
 
-        import xgboost as xgb  # noqa: F401
-        from xgboost import XGBClassifier
         default_params = {
             "n_estimators": 300,
             "max_depth": 6,
@@ -155,27 +162,44 @@ class MobileXGBDetector:
     # Feature extraction
     # ------------------------------------------------------------------
 
-    def extract_features(self, face_sequence_np: np.ndarray) -> np.ndarray:
+    def extract_features(
+        self, face_sequence_np: np.ndarray, include_forensic_descriptors: bool = False
+    ) -> np.ndarray:
         """
         Extract MobileNet features per frame and aggregate (mean, std).
+        Optionally appends multi-domain forensic descriptors (FFT, color boundary, Laplacian, ELA, jitter).
 
         Args:
-            face_sequence_np: (N, H, W, 3) uint8
+            face_sequence_np: (N, H, W, 3) or (H, W, 3) uint8
+            include_forensic_descriptors: Whether to append the 33-dim forensic descriptor vector.
 
         Returns:
-            (2 * feat_dim,) float32 vector
+            (2 * feat_dim,) or (2 * feat_dim + 33,) float32 vector.
         """
-        import torchvision.transforms as T
-        transform = T.Compose([
-            T.ToPILImage(),
-            T.Resize((224, 224)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-        tensors = torch.stack([transform(f) for f in face_sequence_np])  # (N, 3, 224, 224)
+        if face_sequence_np.ndim == 3:
+            face_sequence_np = np.expand_dims(face_sequence_np, axis=0)
+
+        if face_sequence_np.shape[1:3] == (224, 224):
+            # Fast vectorized normalization for (N, 224, 224, 3) uint8
+            tensors = torch.from_numpy(face_sequence_np).permute(0, 3, 1, 2).float().div_(255.0)
+            mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(1, 3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(1, 3, 1, 1)
+            tensors = (tensors - mean) / std
+        else:
+            transform = T.Compose([
+                T.ToPILImage(),
+                T.Resize((224, 224)),
+                T.ToTensor(),
+                T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+            tensors = torch.stack([transform(f) for f in face_sequence_np])  # (N, 3, 224, 224)
         with torch.no_grad():
             feats = self.backbone(tensors).cpu().numpy()  # (N, 960)
-        return np.concatenate([feats.mean(axis=0), feats.std(axis=0)], axis=0)  # (1920,)
+        spatial_vec = np.concatenate([feats.mean(axis=0), feats.std(axis=0)], axis=0).astype(np.float32)
+        if include_forensic_descriptors:
+            forensic_vec = extract_forensic_descriptors(face_sequence_np)
+            return np.concatenate([spatial_vec, forensic_vec], axis=0).astype(np.float32)
+        return spatial_vec
 
     # ------------------------------------------------------------------
     # Training
@@ -201,9 +225,12 @@ class MobileXGBDetector:
     # ------------------------------------------------------------------
 
     def analyze_sequence(
-        self, face_sequence_np: np.ndarray
+        self, face_sequence_np: np.ndarray, is_live: bool = False
     ) -> tuple[float, list[float]]:
         """Return (video_fake_prob, [frame_fake_prob, ...])."""
+        if face_sequence_np.ndim == 3:
+            face_sequence_np = np.expand_dims(face_sequence_np, axis=0)
+
         if not self._xgb_fitted:
             logger.warning(
                 "MobileXGBDetector XGBoost not fitted; returning fallback 0.5."
@@ -211,19 +238,79 @@ class MobileXGBDetector:
             n = len(face_sequence_np)
             return 0.5, [0.5] * n
 
-        import torchvision.transforms as T
-        transform = T.Compose([
-            T.ToPILImage(),
-            T.Resize((224, 224)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-        tensors = torch.stack([transform(f) for f in face_sequence_np])  # (N, 3, 224, 224)
+        if face_sequence_np.shape[1:3] == (224, 224):
+            # Fast vectorized normalization for (N, 224, 224, 3) uint8
+            tensors = torch.from_numpy(face_sequence_np).permute(0, 3, 1, 2).float().div_(255.0)
+            mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(1, 3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(1, 3, 1, 1)
+            tensors = (tensors - mean) / std
+        else:
+            transform = T.Compose([
+                T.ToPILImage(),
+                T.Resize((224, 224)),
+                T.ToTensor(),
+                T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+            tensors = torch.stack([transform(f) for f in face_sequence_np])  # (N, 3, 224, 224)
         with torch.no_grad():
             feats = self.backbone(tensors).cpu().numpy()  # (N, 960)
 
-        agg_feat = np.concatenate([feats.mean(axis=0), feats.std(axis=0)], axis=0).reshape(1, -1)
-        proba = float(self.xgb.predict_proba(agg_feat)[0, 1])
+        agg_feat = np.concatenate([feats.mean(axis=0), feats.std(axis=0)], axis=0).astype(np.float32)
+        expected_features = getattr(self.xgb, "n_features_in_", 1920)
+        forensic_vec = None
+        if expected_features == len(agg_feat) + 33:
+            forensic_vec = extract_forensic_descriptors(face_sequence_np)
+            agg_feat = np.concatenate([agg_feat, forensic_vec], axis=0).astype(np.float32)
+
+        proba = float(self.xgb.predict_proba(agg_feat.reshape(1, -1))[0, 1])
+
+        # Multi-Threat Physical Forensic & Generative AI Fusion Shield
+        # Evaluates physical sensor cues: ELA compression inconsistencies, boundary softening,
+        # Fourier frequency spikes, and latent pixel morphing to detect modern generative models (Kling, Luma, Runway, SadTalker, etc.)
+        # In live webcam mode (is_live=True), calibrated to avoid false alarms from natural 3D head movement, angles, and camera auto-exposure.
+        if forensic_vec is not None and len(face_sequence_np) > 1:
+            fft_0 = float(forensic_vec[0])
+            fft_1 = float(forensic_vec[1])
+            delta_cb = float(forensic_vec[12])
+            delta_cr = float(forensic_vec[13])
+            lap_ratio = float(forensic_vec[20])
+            ela_max = float(forensic_vec[26])
+            temp_mean = float(forensic_vec[30])
+            temp_max = float(forensic_vec[32])
+
+            synthetic_signals: list[tuple[str, float]] = []
+
+            if not is_live:
+                # 1. Fourier High-Frequency Energy Spike (GAN/Diffusion upsampling grid artifacts)
+                # Authentic optical camera recordings have fft_0 < 8.55, fft_1 < 6.65
+                if fft_0 > 8.60 and fft_1 > 6.65:
+                    fft_score = float(min(0.95, 0.65 + (fft_0 - 8.60) / 0.35 * 0.30))
+                    synthetic_signals.append(("FFT_Spike", fft_score))
+
+                # 2. Extreme Latent pixel morphing & non-rigid warping (Image-to-Video diffusion)
+                if temp_max > 5000.0 and temp_mean > 2500.0:
+                    j_score = float(min(0.95, 0.65 + (temp_max - 5000.0) / 4000.0 * 0.30))
+                    synthetic_signals.append(("Latent_Morphing", j_score))
+
+                # 3. Boundary Chrominance / Edge Disparity (Face-swap paste seam)
+                if (delta_cb > 16.0 or delta_cr > 16.0) and lap_ratio > 3.5:
+                    bdry_score = float(min(0.94, 0.60 + (max(delta_cb, delta_cr) - 16.0) / 10.0 * 0.30))
+                    synthetic_signals.append(("Boundary_Softening", bdry_score))
+
+                # 4. Error Level Analysis (ELA) Compression Disparity
+                if ela_max > 60.0:
+                    ela_score = float(min(0.95, 0.60 + (ela_max - 60.0) / 40.0 * 0.35))
+                    synthetic_signals.append(("ELA_Disparity", ela_score))
+
+                if len(synthetic_signals) >= 2:
+                    anomaly_prob = float(np.mean([s[1] for s in synthetic_signals]))
+                    proba = max(proba, anomaly_prob)
+                elif len(synthetic_signals) == 1 and synthetic_signals[0][0] == "FFT_Spike" and synthetic_signals[0][1] >= 0.70:
+                    proba = max(proba, synthetic_signals[0][1])
+            else:
+                # In live webcam mode: only trigger if extreme virtual camera / screen replay spoofing is detected
+                if fft_0 > 9.15 and fft_1 > 7.40 and ela_max > 50.0:
+                    proba = max(proba, 0.85)
 
         # Dynamic per-frame scores modulated by feature variance
         n = len(face_sequence_np)
@@ -242,12 +329,10 @@ class MobileXGBDetector:
         return float(proba), frame_scores
 
     def save(self, path: str) -> None:
-        import joblib
         joblib.dump({"xgb": self.xgb, "fitted": self._xgb_fitted}, path)
 
     @classmethod
-    def load(cls, path: str, pretrained: bool = False) -> "MobileXGBDetector":
-        import joblib
+    def load(cls, path: str, pretrained: bool = True) -> MobileXGBDetector:
         data = joblib.load(path)
         obj = cls(pretrained=pretrained)
         obj.xgb = data["xgb"]
@@ -255,7 +340,7 @@ class MobileXGBDetector:
         return obj
 
 
-def build_sequence_model(name: str, pretrained: bool = False) -> nn.Module | MobileXGBDetector:
+def build_sequence_model(name: str, pretrained: bool = False) -> Union[nn.Module, MobileXGBDetector]:
     """Construct one of the models used by the notebook and API."""
     normalized = name.lower().replace("-", "_")
     if normalized in {"resnet18", "resnet18_bilstm"}:

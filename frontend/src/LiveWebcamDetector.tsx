@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useId } from "react";
 import {
   Activity, AlertTriangle, Camera, Check, ChevronDown, CircleHelp,
   Fingerprint, FlaskConical, Play, Radio, RefreshCw, Shield, ShieldAlert,
-  Sparkles, Square, Video, VideoOff, Zap
+  ShieldCheck, Sparkles, Square, Video, VideoOff, Zap
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +42,7 @@ export type LiveResult = {
   frame_width: number;
   frame_height: number;
   timestamp: number;
+  has_evaluated?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -250,18 +251,35 @@ export default function LiveWebcamDetector({
       ctx.fillStyle = "#ffffff";
       ctx.fillText(topText, bx + 6, Math.max(0, by - topBadgeH - 4) + 13);
 
-      // Bottom badge: Real-time Fake Risk Score
-      const botText = `RISK: ${Math.round(res.fake_score * 100)}% · ${res.verdict}`;
+      // Bottom badge: Real-time Authenticity / Deepfake Verdict
+      const realPct = Math.round((res.real_score ?? (1 - res.fake_score)) * 100);
+      const fakePct = Math.round(res.fake_score * 100);
+      const isEvaluating = !res.has_evaluated && res.verdict === "ANALYZING";
+
+      const botText = isEvaluating
+        ? `ANALYZING: ${res.buffer_count}/${res.buffer_target}F`
+        : isHigh
+        ? `DEEPFAKE: ${fakePct}% FAKE`
+        : isSuspicious
+        ? `SUSPICIOUS: ${fakePct}% RISK`
+        : `REAL: ${realPct}% AUTHENTIC`;
+
       const botMetrics = ctx.measureText(botText);
-      const botBadgeW = botMetrics.width + 12;
+      const botBadgeW = botMetrics.width + 14;
       const botBadgeH = 20;
 
-      ctx.fillStyle = isHigh ? "rgba(220, 38, 38, 0.9)" : "rgba(15, 23, 42, 0.85)";
+      ctx.fillStyle = isHigh
+        ? "rgba(220, 38, 38, 0.95)"
+        : isSuspicious
+        ? "rgba(217, 119, 6, 0.95)"
+        : isEvaluating
+        ? "rgba(30, 41, 59, 0.9)"
+        : "rgba(16, 185, 129, 0.95)";
       ctx.fillRect(bx, by + bh + 4, botBadgeW, botBadgeH);
       ctx.strokeStyle = color;
       ctx.strokeRect(bx, by + bh + 4, botBadgeW, botBadgeH);
-      ctx.fillStyle = isHigh ? "#ffffff" : color;
-      ctx.fillText(botText, bx + 6, by + bh + 4 + 14);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(botText, bx + 7, by + bh + 4 + 14);
     },
     [mirrored, threshold]
   );
@@ -507,9 +525,16 @@ export default function LiveWebcamDetector({
     };
   }, []);
 
+  const hasEvaluated = Boolean(latestResult?.has_evaluated);
   const fakeScore = latestResult?.fake_score ?? 0;
-  const isHighRisk = fakeScore >= threshold;
-  const isSuspicious = !isHighRisk && fakeScore >= 0.4;
+  const realScore = latestResult?.real_score ?? (1 - fakeScore);
+  const isHighRisk = hasEvaluated && fakeScore >= threshold;
+  const isSuspicious = hasEvaluated && !isHighRisk && fakeScore >= 0.4;
+  const isAuthentic = hasEvaluated && !isHighRisk && !isSuspicious;
+  const isAnalyzing = isStreaming && !hasEvaluated;
+
+  const fakePct = Math.round(fakeScore * 100);
+  const realPct = Math.round(realScore * 100);
   const bufferCount = latestResult?.buffer_count ?? 0;
   const bufferTarget = latestResult?.buffer_target ?? 32;
 
@@ -729,10 +754,16 @@ export default function LiveWebcamDetector({
             </div>
           </div>
 
-          {/* Real-time Risk Score Card */}
+          {/* Real-time Biometric Verdict & Risk Score Card */}
           <div
             className={`live-risk-card ${
-              isHighRisk ? "risk-high" : isSuspicious ? "risk-sus" : "risk-low"
+              isHighRisk
+                ? "risk-high"
+                : isSuspicious
+                ? "risk-sus"
+                : isAnalyzing
+                ? "risk-analyzing"
+                : "risk-low"
             }`}
           >
             <div className="risk-card-left">
@@ -741,47 +772,103 @@ export default function LiveWebcamDetector({
                   <ShieldAlert size={28} />
                 ) : isSuspicious ? (
                   <AlertTriangle size={28} />
+                ) : isAnalyzing ? (
+                  <RefreshCw size={28} className="pulse" />
                 ) : (
-                  <Shield size={28} />
+                  <ShieldCheck size={28} />
                 )}
               </div>
               <div className="risk-copy">
                 <span className="risk-eyebrow">
-                  {latestResult?.risk_label || "AUTHENTIC / LOW RISK"}
+                  {isHighRisk
+                    ? "🔴 HIGH DEEPFAKE ALERT · MANIPULATED"
+                    : isSuspicious
+                    ? "🟡 SUSPICIOUS · INCONCLUSIVE MOTION"
+                    : isAnalyzing
+                    ? "⏳ BUFFERING 32-FRAME SEQUENCE"
+                    : "🟢 VERIFIED AUTHENTIC · REAL HUMAN"}
                 </span>
                 <strong className="risk-verdict">
                   {isHighRisk
-                    ? "Deepfake Signal Detected"
+                    ? `Deepfake Detected (${fakePct}% Risk)`
                     : isSuspicious
-                    ? "Suspicious / Review Recommended"
-                    : "Authentic Facial Motion"}
+                    ? `Suspicious Movement (${fakePct}% Risk)`
+                    : isAnalyzing
+                    ? `Analyzing Stream (${bufferCount}/${bufferTarget}F)`
+                    : `Authentic Face (${realPct}% Real)`}
                 </strong>
                 <small className="risk-desc">
                   {isHighRisk
-                    ? "MobileNetV3 + XGBoost sequence model detected high manipulation signals."
+                    ? "MobileNetV3 + XGBoost flagged synthetic facial boundary and temporal motion anomalies."
                     : isSuspicious
-                    ? "Elevated manipulation probability. Maintain steady lighting and frontal angle."
-                    : "Temporal facial dynamics and boundary consistency are within natural parameters."}
+                    ? "Elevated manipulation cues. Maintain steady frontal lighting and center your face."
+                    : isAnalyzing
+                    ? "InsightFace SCRFD is tracking facial coordinates to build the 32-frame sequence window."
+                    : "MobileNetV3 + XGBoost confirmed genuine biological facial dynamics across 32 frames."}
                 </small>
               </div>
             </div>
 
-            {/* Circular Risk Ring */}
+            {/* Circular Gauge */}
             <div
               className={`live-score-gauge ${
-                isHighRisk ? "gauge-high" : isSuspicious ? "gauge-sus" : "gauge-low"
+                isHighRisk
+                  ? "gauge-high"
+                  : isSuspicious
+                  ? "gauge-sus"
+                  : "gauge-low"
               }`}
               style={
                 {
-                  "--gauge-score": `${Math.round(fakeScore * 100)}%`,
+                  "--gauge-score": `${
+                    isAnalyzing
+                      ? Math.round((bufferCount / bufferTarget) * 100)
+                      : isHighRisk || isSuspicious
+                      ? fakePct
+                      : realPct
+                  }%`,
                 } as React.CSSProperties
               }
             >
               <div className="gauge-inner">
-                <span className="gauge-val">{Math.round(fakeScore * 100)}</span>
-                <span className="gauge-pct">%</span>
-                <small className="gauge-label">FAKE RISK</small>
+                <span className="gauge-val">
+                  {isAnalyzing ? bufferCount : isHighRisk || isSuspicious ? fakePct : realPct}
+                </span>
+                <span className="gauge-pct">{isAnalyzing ? `/${bufferTarget}` : "%"}</span>
+                <small className="gauge-label">
+                  {isAnalyzing
+                    ? "BUFFER"
+                    : isHighRisk
+                    ? "FAKE RISK"
+                    : isSuspicious
+                    ? "SUSPICIOUS"
+                    : "REAL"}
+                </small>
               </div>
+            </div>
+          </div>
+
+          {/* Dual Score Real vs Fake Comparison Bar */}
+          <div className="live-dual-meter">
+            <div className="dual-meter-header">
+              <span className="dual-label real-label">
+                <span className="dot dot-green" /> REAL AUTHENTICITY: <b>{hasEvaluated ? `${realPct}%` : `${bufferCount}/${bufferTarget}F`}</b>
+              </span>
+              <span className="dual-label fake-label">
+                <span className="dot dot-red" /> DEEPFAKE RISK: <b>{hasEvaluated ? `${fakePct}%` : "—"}</b>
+              </span>
+            </div>
+            <div className="dual-meter-bar-track">
+              <div
+                className="dual-meter-fill real-fill"
+                style={{ width: `${hasEvaluated ? realPct : Math.round((bufferCount / bufferTarget) * 50)}%` }}
+                title={`Authenticity: ${realPct}%`}
+              />
+              <div
+                className="dual-meter-fill fake-fill"
+                style={{ width: `${hasEvaluated ? fakePct : 0}%` }}
+                title={`Fake Risk: ${fakePct}%`}
+              />
             </div>
           </div>
 
@@ -894,13 +981,23 @@ export default function LiveWebcamDetector({
             <div className="telemetry-card">
               <span>FACE DETECTOR</span>
               <strong>{latestResult?.detector_name || "InsightFace SCRFD"}</strong>
-              <small>{latestResult?.detect_ms ? `${latestResult.detect_ms} ms` : "0 ms"}</small>
+              <small>
+                {latestResult?.detect_ms !== undefined && latestResult.detect_ms > 0
+                  ? `${latestResult.detect_ms} ms`
+                  : "Active"}
+              </small>
             </div>
 
             <div className="telemetry-card">
               <span>SEQUENCE MODEL</span>
               <strong>MobileNetV3 + XGBoost</strong>
-              <small>{latestResult?.inference_ms ? `${latestResult.inference_ms} ms` : "0 ms"}</small>
+              <small>
+                {latestResult?.inference_ms !== undefined && latestResult.inference_ms > 0
+                  ? `${latestResult.inference_ms} ms`
+                  : hasEvaluated
+                  ? "Evaluating"
+                  : "Buffering 32F"}
+              </small>
             </div>
 
             <div className="telemetry-card">

@@ -117,6 +117,15 @@ def _startup() -> None:
     db.init_db()
     db.fail_stale_jobs()
     init_auth_tables()
+    # Pre-warm live detection models so the first webcam frame evaluates immediately
+    try:
+        from src.face_detector import get_detector
+        from src.live_detector import get_live_model
+        get_detector()
+        get_live_model()
+        logging.getLogger(__name__).info("Pre-warmed SCRFD and MobileNet-XGBoost live detection models.")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not pre-warm live models at startup: %s", exc)
 
 
 # ---------------------------------------------------------------------------

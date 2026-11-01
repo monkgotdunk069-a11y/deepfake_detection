@@ -7,13 +7,12 @@ WebSocket session management, and live status endpoints.
 import base64
 import cv2
 import numpy as np
-import torch
 
 from src.live_detector import (
     LiveDetectionSession,
     get_live_model,
-    _crop_face_patch,
-    _to_thumbnail_data_url,
+    crop_face_patch,
+    to_thumbnail_data_url,
 )
 from src.face_detector import detect_faces, get_detector, get_detector_name
 from src.models_zoo import MobileXGBDetector
@@ -58,11 +57,11 @@ def test_face_patch_cropping():
         x, y, w, h = 100, 100, 120, 120
         confidence = 0.95
 
-    patch = _crop_face_patch(img, MockBox(), margin_ratio=0.2, target_size=(224, 224))
+    patch = crop_face_patch(img, MockBox(), margin_ratio=0.2, target_size=(224, 224))
     assert patch.shape == (224, 224, 3)
     assert patch.dtype == np.uint8
 
-    thumb_url = _to_thumbnail_data_url(patch)
+    thumb_url = to_thumbnail_data_url(patch)
     assert thumb_url.startswith("data:image/jpeg;base64,")
 
 
@@ -126,7 +125,7 @@ def test_frame_image_decoding():
 
 def test_live_status_endpoint():
     """Verify FastAPI /api/live/status route response directly."""
-    from src.api import live_status, app
+    from src.api import live_status
 
     res = live_status()
     assert res["status"] == "ready"

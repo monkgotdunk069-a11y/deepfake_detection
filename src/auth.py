@@ -78,6 +78,11 @@ def _jwt_verify(token: str) -> dict:
     return payload
 
 
+# Public aliases
+jwt_sign = _jwt_sign
+jwt_verify = _jwt_verify
+
+
 # ---------------------------------------------------------------------------
 # Password hashing (bcrypt via passlib, fallback to PBKDF2-HMAC-SHA256)
 # ---------------------------------------------------------------------------

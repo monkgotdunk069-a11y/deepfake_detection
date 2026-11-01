@@ -1,13 +1,42 @@
 {
+  "timestamp": 1793526136.3817382,
   "seed": 42,
-  "device": "cpu",
   "winner": "mobilenet_xgboost",
+  "num_features": 1953,
+  "num_frames": 32,
+  "train_samples": 1424,
+  "test_samples": 356,
+  "optimal_threshold": 0.559,
+  "metrics": {
+    "accuracy": 0.7331460674157303,
+    "balanced_accuracy": 0.7331460674157303,
+    "precision": 0.7219251336898396,
+    "recall": 0.7584269662921348,
+    "f1": 0.7397260273972602,
+    "roc_auc": 0.8044754450195682,
+    "confusion_matrix": [
+      [
+        126,
+        52
+      ],
+      [
+        43,
+        135
+      ]
+    ]
+  },
   "results": {
-    "resnet18_bilstm": {
-      "accuracy": 0.49333333333333335,
-      "balanced_accuracy": 0.5,
-      "f1": 0.6607142857142857,
-      "roc_auc": 0.5476529160739687
+    "mobilenet_xgboost_multidomain": {
+      "accuracy": 0.7331460674157303,
+      "balanced_accuracy": 0.7331460674157303,
+      "f1": 0.7397260273972602,
+      "roc_auc": 0.8044754450195682
+    },
+    "mobilenet_xgboost_baseline": {
+      "accuracy": 0.6666666666666666,
+      "balanced_accuracy": 0.6671408250355619,
+      "f1": 0.6753246753246753,
+      "roc_auc": 0.6714082503556189
     },
     "efficientnet_v2_bilstm": {
       "accuracy": 0.5466666666666666,
@@ -15,18 +44,12 @@
       "f1": 0.6730769230769231,
       "roc_auc": 0.6465149359886202
     },
-    "mobilenet_xgboost": {
-      "accuracy": 0.6666666666666666,
-      "balanced_accuracy": 0.6671408250355619,
-      "f1": 0.6753246753246753,
-      "roc_auc": 0.6714082503556189
-    },
-    "mobilenet_xgboost_pretrained_features": {
-      "accuracy": 0.6,
-      "balanced_accuracy": 0.6013513513513513,
-      "f1": 0.6341463414634146,
-      "roc_auc": 0.6593172119487909
+    "resnet18_bilstm": {
+      "accuracy": 0.49333333333333335,
+      "balanced_accuracy": 0.5,
+      "f1": 0.6607142857142857,
+      "roc_auc": 0.5476529160739687
     }
   },
-  "production_training": "MobileNetV3 pretrained ImageNet features + XGBoost"
+  "production_training": "MobileNetV3-Large + Multi-Domain Forensic Descriptors (FFT, Color, Texture, ELA, Jitter) + XGBoost"
 }

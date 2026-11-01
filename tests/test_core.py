@@ -1,11 +1,10 @@
-import io
 import os
 import tempfile
 import numpy as np
 from PIL import Image
 
 from src.forensics import compute_fft_spectrum, compute_ela
-from src.auth import hash_password, verify_password, _jwt_sign, _jwt_verify
+from src.auth import hash_password, verify_password, jwt_sign, jwt_verify
 import src.database as db
 
 
@@ -19,11 +18,11 @@ def test_password_hashing():
 
 def test_jwt_sign_and_verify():
     payload = {"sub": "user_test_123", "role": "admin", "exp": 9999999999}
-    token = _jwt_sign(payload)
+    token = jwt_sign(payload)
     assert isinstance(token, str)
     assert len(token.split(".")) == 3
 
-    decoded = _jwt_verify(token)
+    decoded = jwt_verify(token)
     assert decoded["sub"] == "user_test_123"
     assert decoded["role"] == "admin"
 
@@ -85,3 +84,41 @@ def test_database_lifecycle():
             assert batch_jobs[0]["id"] == "test-job-001"
         finally:
             db.DB_PATH = original_db
+
+
+def test_preprocessing_utilities():
+    from src.preprocessing import (
+        normalize_face_sequence,
+        train_transform,
+        test_transform,
+        default_transform,
+        detect_and_crop_face,
+        DeepfakeVideoDataset,
+    )
+    import torch
+
+    # Verify normalization shape and type
+    dummy_seq = np.zeros((4, 224, 224, 3), dtype=np.uint8)
+    norm = normalize_face_sequence(dummy_seq)
+    assert norm.shape == (4, 3, 224, 224)
+    assert norm.dtype == np.float32
+
+    # Verify transforms exist and are callable
+    assert callable(train_transform)
+    assert callable(test_transform)
+    assert callable(default_transform)
+    assert callable(detect_and_crop_face)
+
+    # Verify DeepfakeVideoDataset initialization and transform pipeline
+    ds = DeepfakeVideoDataset(
+        video_items=[("dummy.mp4", 1)],
+        num_frames=4,
+        is_training=True,
+    )
+    assert len(ds) == 1
+    # Test transform_sequence directly with dummy frames
+    tensors = ds.transform_sequence(list(dummy_seq))
+    assert len(tensors) == 4
+    assert isinstance(tensors[0], torch.Tensor)
+    assert tensors[0].shape == (3, 224, 224)
+

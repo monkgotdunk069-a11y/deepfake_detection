@@ -725,6 +725,76 @@ footer{height:68px;border-top:1px solid #e7e9eb;display:flex;align-items:center;
   background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
   border-color: #fecaca;
 }
+.live-risk-card.risk-analyzing {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-color: #cbd5e1;
+}
+.risk-analyzing .risk-icon-wrap {
+  background: #e2e8f0;
+  color: #475569;
+}
+.risk-analyzing .risk-eyebrow { color: #64748b; }
+
+/* Dual Comparison Meter */
+.live-dual-meter {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.dual-meter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.dual-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.dual-label.real-label {
+  color: #16a34a;
+}
+.dual-label.fake-label {
+  color: #dc2626;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot-green {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+.dot-red {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+.dual-meter-bar-track {
+  height: 10px;
+  width: 100%;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+}
+.dual-meter-fill {
+  height: 100%;
+  transition: width 0.35s ease;
+}
+.dual-meter-fill.real-fill {
+  background: linear-gradient(90deg, #10b981, #059669);
+}
+.dual-meter-fill.fake-fill {
+  background: linear-gradient(90deg, #f87171, #dc2626);
+}
 .risk-card-left {
   display: flex;
   align-items: flex-start;

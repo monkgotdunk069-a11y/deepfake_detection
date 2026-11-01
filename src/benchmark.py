@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 from pathlib import Path
+import random
 from typing import Any
 
 import numpy as np
-import torch
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, roc_auc_score
 from sklearn.model_selection import train_test_split
+import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
@@ -23,7 +23,7 @@ from src.models_zoo import MobileXGBDetector, build_sequence_model
 from src.preprocessing import DeepfakeVideoDataset, process_video
 
 
-def collect_items(data_dir: str, limit_per_class: int | None = None, seed: int = 42):
+def collect_items(data_dir: str, limit_per_class: int | None = None, seed: int = 42) -> list[tuple[str, int]]:
     root = Path(data_dir)
     real = sorted((root / "Celeb-real").glob("*.mp4"))
     real += sorted((root / "YouTube-real").glob("*.mp4"))
@@ -49,7 +49,7 @@ def _metrics(labels: list[int], probabilities: list[float]) -> dict[str, float]:
     }
 
 
-def _evaluate(model: nn.Module, loader: DataLoader, device: torch.device):
+def _evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> dict[str, float]:
     model.eval()
     labels: list[int] = []
     probabilities: list[float] = []
@@ -123,15 +123,18 @@ def run_benchmark(
     results: dict[str, dict[str, float]] = {}
 
     for name in ("resnet18_bilstm", "efficientnet_v2_bilstm"):
-        model = build_sequence_model(name, pretrained=pretrained)
-        model, _ = _train_torch_model(model, train_loader, val_loader, device, epochs)
-        results[name] = _evaluate(model, test_loader, device)
-        torch.save(model.state_dict(), output_path / f"{name}.pt")
+        seq_model = build_sequence_model(name, pretrained=pretrained)
+        if isinstance(seq_model, nn.Module):
+            trained_model, _ = _train_torch_model(seq_model, train_loader, val_loader, device, epochs)
+            results[name] = _evaluate(trained_model, test_loader, device)
+            torch.save(trained_model.state_dict(), output_path / f"{name}.pt")
 
     mobile = build_sequence_model("mobilenet_xgboost", pretrained=pretrained)
     assert isinstance(mobile, MobileXGBDetector)
-    def features(split):
+
+    def features(split: list[tuple[str, int]]) -> np.ndarray:
         return np.stack([mobile.extract_features(process_video(path, num_frames)[0]) for path, _ in split])
+
     x_train, y_train = features(train_items), np.array([label for _, label in train_items])
     x_test, y_test = features(test_items), np.array([label for _, label in test_items])
     mobile.fit(x_train, y_train)

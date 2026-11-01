@@ -10,10 +10,10 @@ All detectors return bounding boxes in (x, y, w, h) format (pixel coords).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import os
-from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
 
 import cv2
 import numpy as np
@@ -37,6 +37,14 @@ class FaceBox:
 
     def area(self) -> int:
         return self.w * self.h
+
+
+@runtime_checkable
+class FaceDetectorBackend(Protocol):
+    name: str
+
+    def detect(self, frame_rgb: np.ndarray) -> list[FaceBox]:
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +81,6 @@ class _SCRFDBackend:
     """InsightFace SCRFD detector — requires `insightface` package."""
 
     def __init__(self) -> None:
-        import insightface  # noqa: F401 – guard import
         from insightface.app import FaceAnalysis
 
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -107,7 +114,6 @@ class _RetinaFaceBackend:
     """InsightFace RetinaFace model — high-accuracy fallback to SCRFD."""
 
     def __init__(self) -> None:
-        import insightface  # noqa: F401
         from insightface.app import FaceAnalysis
 
         self._app = FaceAnalysis(
@@ -135,11 +141,11 @@ class _RetinaFaceBackend:
 # Singleton detector factory
 # ---------------------------------------------------------------------------
 
-_detector_instance: Optional[object] = None
+_detector_instance: Optional[FaceDetectorBackend] = None
 _detector_name: str = "unknown"
 
 
-def _build_detector():
+def _build_detector() -> FaceDetectorBackend:
     """Build the configured production detector.
 
     Haar is intentionally opt-in. Silently using it in production would make
@@ -159,7 +165,7 @@ def _build_detector():
         return _HaarBackend()
 
 
-def get_detector():
+def get_detector() -> FaceDetectorBackend:
     """Return the module-level singleton detector (lazy init)."""
     global _detector_instance
     if _detector_instance is None:
@@ -202,7 +208,20 @@ def detect_and_crop_face(
     boxes = detect_faces(frame_rgb)
 
     if boxes:
-        fb = boxes[0]
+        if last_box is not None:
+            lx, ly, lw, lh = last_box
+            lcx, lcy = lx + lw / 2, ly + lh / 2
+            best_idx = 0
+            best_dist = float("inf")
+            for b_i, b in enumerate(boxes):
+                bcx, bcy = b.x + b.w / 2, b.y + b.h / 2
+                dist = (bcx - lcx) ** 2 + (bcy - lcy) ** 2
+                if dist < best_dist:
+                    best_dist = dist
+                    best_idx = b_i
+            fb = boxes[best_idx]
+        else:
+            fb = boxes[0]
         x, y, w, h = fb.x, fb.y, fb.w, fb.h
     elif last_box is not None:
         x, y, w, h = last_box

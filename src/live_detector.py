@@ -97,6 +97,11 @@ def _to_thumbnail_data_url(image_rgb: np.ndarray, size: tuple[int, int] = (96, 9
     return f"data:image/jpeg;base64,{b64}"
 
 
+# Public aliases
+crop_face_patch = _crop_face_patch
+to_thumbnail_data_url = _to_thumbnail_data_url
+
+
 class LiveDetectionSession:
     """
     Stateful session for a single live webcam client.
@@ -121,6 +126,8 @@ class LiveDetectionSession:
 
         self.last_detect_ms = 0.0
         self.last_inference_ms = 0.0
+        self.last_box: Optional[tuple[int, int, int, int]] = None
+        self._smoothed_fake_score: Optional[float] = None
 
         # Background inference executor to avoid stalling the video feed
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="live_mobilenet_xgb")
@@ -131,10 +138,11 @@ class LiveDetectionSession:
             "fake_score": 0.0,
             "real_score": 1.0,
             "confidence": 0.0,
-            "verdict": "REAL",
-            "risk_level": "LOW",
-            "risk_label": "Authentic / Low Risk",
+            "verdict": "ANALYZING",
+            "risk_level": "WAITING",
+            "risk_label": "Analyzing Biometric Stream...",
             "frame_scores": [],
+            "has_evaluated": False,
         }
 
     def reset(self) -> None:
@@ -148,14 +156,17 @@ class LiveDetectionSession:
         self.rolling_fps = 0.0
         self.last_detect_ms = 0.0
         self.last_inference_ms = 0.0
+        self.last_box = None
+        self._smoothed_fake_score = None
         self.last_prediction = {
             "fake_score": 0.0,
             "real_score": 1.0,
             "confidence": 0.0,
-            "verdict": "REAL",
-            "risk_level": "LOW",
-            "risk_label": "Authentic / Low Risk",
+            "verdict": "ANALYZING",
+            "risk_level": "WAITING",
+            "risk_label": "Analyzing Biometric Stream...",
             "frame_scores": [],
+            "has_evaluated": False,
         }
 
     def close(self) -> None:
@@ -191,8 +202,15 @@ class LiveDetectionSession:
         t0 = time.perf_counter()
         seq_np = np.stack(frames_list, axis=0)  # (32, 224, 224, 3) uint8
 
-        fake_prob, raw_frame_scores = model.analyze_sequence(seq_np)
-        fake_prob = float(np.clip(fake_prob, 0.0, 1.0))
+        fake_prob, raw_frame_scores = model.analyze_sequence(seq_np, is_live=True)
+
+        # Exponential Moving Average for smooth, flicker-free live telemetry
+        if self._smoothed_fake_score is None:
+            self._smoothed_fake_score = fake_prob
+        else:
+            self._smoothed_fake_score = 0.75 * self._smoothed_fake_score + 0.25 * fake_prob
+
+        fake_prob = float(np.clip(self._smoothed_fake_score, 0.0, 1.0))
         real_prob = float(1.0 - fake_prob)
         frame_scores = [float(np.clip(p, 0.0, 1.0)) for p in raw_frame_scores]
 
@@ -225,6 +243,7 @@ class LiveDetectionSession:
             "risk_label": risk_label,
             "frame_scores": frame_scores,
             "inference_ms": inf_ms,
+            "has_evaluated": True,
         }
 
     def process_frame(self, frame_rgb: np.ndarray) -> dict[str, Any]:
@@ -273,6 +292,7 @@ class LiveDetectionSession:
             self._infer_future = None
 
         if not boxes:
+            self.last_box = None
             return {
                 "type": "result",
                 "face_detected": False,
@@ -295,15 +315,31 @@ class LiveDetectionSession:
                 "fps": round(float(self.rolling_fps), 1),
                 "model_name": "MobileNetV3 + XGBoost",
                 "detector_name": get_detector_name(),
+                "has_evaluated": bool(self.last_prediction.get("has_evaluated", False)),
                 "frame_width": int(w_img),
                 "frame_height": int(h_img),
                 "timestamp": float(now),
             }
 
-        # Face detected
+        # Face detected: track primary face box using nearest-neighbor continuity
         self.face_count += 1
-        primary_box = boxes[0]
-        face_crop = _crop_face_patch(frame_rgb, primary_box, margin_ratio=0.2)
+        if self.last_box is not None and len(boxes) > 1:
+            lx, ly, lw, lh = self.last_box
+            lcx, lcy = lx + lw / 2, ly + lh / 2
+            best_box = boxes[0]
+            best_dist = float("inf")
+            for b in boxes:
+                bcx, bcy = b.x + b.w / 2, b.y + b.h / 2
+                dist = (bcx - lcx) ** 2 + (bcy - lcy) ** 2
+                if dist < best_dist:
+                    best_dist = dist
+                    best_box = b
+            primary_box = best_box
+        else:
+            primary_box = boxes[0]
+
+        self.last_box = (primary_box.x, primary_box.y, primary_box.w, primary_box.h)
+        face_crop = _crop_face_patch(frame_rgb, primary_box, margin_ratio=0.25)
         self.sequence_buffer.append(face_crop)
 
         crop_data_url = _to_thumbnail_data_url(face_crop)
@@ -353,6 +389,7 @@ class LiveDetectionSession:
             "fps": round(float(self.rolling_fps), 1),
             "model_name": "MobileNetV3 + XGBoost",
             "detector_name": get_detector_name(),
+            "has_evaluated": bool(self.last_prediction.get("has_evaluated", False)),
             "frame_width": int(w_img),
             "frame_height": int(h_img),
             "timestamp": float(now),

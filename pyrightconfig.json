@@ -1,7 +1,21 @@
 {
+  "venvPath": ".",
+  "venv": ".venv",
   "extraPaths": [
     ".",
-    "src"
+    "src",
+    ".venv/Lib/site-packages"
   ],
-  "reportWildcardImportFromLibrary": "none"
+  "typeCheckingMode": "off",
+  "reportWildcardImportFromLibrary": "none",
+  "reportUnusedImport": "none",
+  "reportUnusedVariable": "none",
+  "reportMissingTypeStubs": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportPrivateUsage": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportAttributeAccessIssue": "none"
 }

@@ -2,7 +2,7 @@ import { ChangeEvent, CSSProperties, DragEvent, FormEvent, useCallback, useEffec
 import {
   Activity, AlertTriangle, ArrowUpRight, Check, ChevronDown, CircleHelp,
   Clapperboard, Eye, EyeOff, FileVideo2, Fingerprint, Film, FlaskConical,
-  Link2, LoaderCircle, LogIn, LogOut, Mail, MapPin, Shield, ShieldAlert,
+  Link2, LoaderCircle, LogIn, LogOut, Mail, MapPin, Shield, ShieldAlert, ShieldCheck,
   Sparkles, Upload, User, X, Zap, Files, FileDown, Video, Radio
 } from "lucide-react";
 import LiveWebcamDetector from "./LiveWebcamDetector";
@@ -624,8 +624,10 @@ function Dashboard({ auth, onLogout }: { auth: AuthState; onLogout: () => void }
 // ---------------------------------------------------------------------------
 
 function ResultsTab({ job, threshold, onThresholdChange, flagged, score, auth }: { job: Job; threshold: number; onThresholdChange: (v: number) => void; flagged: boolean; score: number; auth: AuthState }) {
-  const assessment = flagged ? "Elevated signal" : "No strong signal";
   const result = job.result!;
+  const fakePercent = Math.round(score * 100);
+  const realPercent = Math.max(0, 100 - fakePercent);
+  const isDeepfake = flagged;
   const [selectedFrame, setSelectedFrame] = useState(0);
   const frameCount = result.face_frames.length;
   const activeFrame = Math.min(selectedFrame, Math.max(frameCount - 1, 0));
@@ -639,10 +641,39 @@ function ResultsTab({ job, threshold, onThresholdChange, flagged, score, auth }:
   };
   return (
     <div className="results-content">
-      <div className={`verdict-card ${flagged ? "flagged" : "clear"}`}>
-        <div className="verdict-icon">{flagged ? <ShieldAlert size={20} /> : <Shield size={20} />}</div>
-        <div className="verdict-copy"><span>MODEL SCREENING</span><strong>{assessment}</strong><small>{flagged ? "Above threshold. Human review recommended." : "Below threshold. Does not prove authenticity."}</small></div>
-        <div className={`score-ring ${flagged ? "ring-flagged" : "ring-clear"}`} style={{ "--score": `${score * 100}%` } as CSSProperties}><div><strong>{Math.round(score * 100)}</strong><small>%</small></div></div>
+      <div className={`verdict-card ${isDeepfake ? "flagged" : "clear"}`}>
+        <div className="verdict-icon">{isDeepfake ? <ShieldAlert size={22} /> : <ShieldCheck size={22} />}</div>
+        <div className="verdict-copy">
+          <span style={{ color: isDeepfake ? "#c94a29" : "#2e7d32", fontWeight: 700, letterSpacing: "0.8px" }}>
+            {isDeepfake ? "CRITICAL ALERT · MANIPULATION DETECTED" : "VERIFIED AUTHENTIC · HUMAN SUBJECT"}
+          </span>
+          <strong style={{ fontSize: "14px", color: isDeepfake ? "#a32f14" : "#1b5e20" }}>
+            {isDeepfake ? "DEEPFAKE / AI GENERATED MEDIA" : "AUTHENTIC HUMAN RECORDING"}
+          </strong>
+          <small style={{ color: "#546e7a" }}>
+            {isDeepfake
+              ? "Elevated synthetic media signals: facial boundary seams, latent morphing, or diffusion artifacts detected."
+              : "Natural facial dynamics, authentic optical sensor consistency, and zero synthetic seams detected."}
+          </small>
+          <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+            <span style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "4px", background: isDeepfake ? "#f5f5f5" : "#e8f5e9", color: isDeepfake ? "#616161" : "#2e7d32", fontWeight: 700 }}>
+              Authenticity: {realPercent}% Real
+            </span>
+            <span style={{ fontSize: "9px", padding: "2px 7px", borderRadius: "4px", background: isDeepfake ? "#ffebee" : "#f5f5f5", color: isDeepfake ? "#c62828" : "#757575", fontWeight: 700 }}>
+              Deepfake Risk: {fakePercent}% Fake
+            </span>
+          </div>
+        </div>
+        <div className={`score-ring ${isDeepfake ? "ring-flagged" : "ring-clear"}`} style={{ "--score": `${(isDeepfake ? score : (1 - score)) * 100}%` } as CSSProperties}>
+          <div>
+            <strong style={{ color: isDeepfake ? "#c94a29" : "#2e7d32", fontSize: "14px" }}>
+              {isDeepfake ? fakePercent : realPercent}
+            </strong>
+            <small style={{ fontSize: "7px", fontWeight: "bold" }}>
+              {isDeepfake ? "% FAKE" : "% REAL"}
+            </small>
+          </div>
+        </div>
       </div>
       <div className="threshold-setting"><div><span>Flag threshold</span><b>{Math.round(threshold * 100)}%</b></div><input aria-label="Flag threshold" type="range" min="0.3" max="0.8" step="0.01" value={threshold} onChange={ev => onThresholdChange(Number(ev.target.value))} /></div>
       {result.detector_name && <div className="detector-badge"><Zap size={13} /><span>{result.detector_name}</span></div>}

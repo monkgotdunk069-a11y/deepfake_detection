@@ -12,7 +12,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.model import HAS_TORCH, ResNeXtLSTMDetector, SpatialTemporalForensicDetector
 from src.models_zoo import EfficientV2LSTMDetector, MobileXGBDetector
-from src.preprocessing import process_video
+from src.preprocessing import process_video, process_video_multi_subject
 
 
 if HAS_TORCH:
@@ -146,76 +146,53 @@ def predict_video(
             backbone_type=backbone_type
         )
 
-    face_sequence_np, face_pil_list = process_video(
+    multi_subjects = process_video_multi_subject(
         video_path,
         num_frames=num_frames
     )
 
-    if len(face_sequence_np) == 0:
+    if not multi_subjects:
         raise RuntimeError(
             "No usable face frames were extracted from the video."
         )
 
-    if isinstance(model, MobileXGBDetector):
-        fake_prob, frame_probs = model.analyze_sequence(face_sequence_np)
-    elif HAS_TORCH and isinstance(model, torch.nn.Module):
+    # Multi-subject evaluation: assess all people in frame and pool by max threat
+    subject_predictions = []
+    for face_sequence_np, face_pil_list in multi_subjects:
+        if isinstance(model, MobileXGBDetector):
+            s_fake_prob, s_frame_probs = model.analyze_sequence(face_sequence_np)
+        elif HAS_TORCH and isinstance(model, torch.nn.Module):
+            frame_tensors = [transform_pipeline(face) for face in face_sequence_np]
+            video_tensor = torch.stack(frame_tensors, dim=0).unsqueeze(0).to(device)
+            with torch.no_grad():
+                output = model(video_tensor)
 
-        frame_tensors = []
+            if isinstance(output, tuple):
+                logits, frame_logits = output
+            else:
+                logits = output
+                frame_logits = None
 
-        for face in face_sequence_np:
+            s_fake_prob = torch.sigmoid(logits).detach().cpu().item()
 
-            tensor = transform_pipeline(face)
-
-            frame_tensors.append(tensor)
-
-        video_tensor = torch.stack(
-            frame_tensors,
-            dim=0
-        ).unsqueeze(0)
-
-        video_tensor = video_tensor.to(device)
-
-        with torch.no_grad():
-
-            output = model(video_tensor)
-
-        if isinstance(output, tuple):
-
-            logits, frame_logits = output
-
+            if frame_logits is not None:
+                s_frame_probs = torch.sigmoid(
+                    frame_logits
+                ).detach().cpu().reshape(-1).numpy().tolist()
+            else:
+                s_frame_probs = [s_fake_prob for _ in range(len(face_pil_list))]
         else:
+            if not isinstance(model, SpatialTemporalForensicDetector):
+                model = SpatialTemporalForensicDetector()
+            s_fake_prob, s_frame_probs = model.analyze_sequence(face_sequence_np)
 
-            logits = output
-            frame_logits = None
+        subject_predictions.append((s_fake_prob, s_frame_probs, face_pil_list))
 
-        fake_prob = torch.sigmoid(
-            logits
-        ).detach().cpu().item()
-
-        if frame_logits is not None:
-
-            frame_probs = torch.sigmoid(
-                frame_logits
-            ).detach().cpu().reshape(-1).numpy().tolist()
-
-        else:
-
-            frame_probs = [
-                fake_prob
-                for _ in range(len(face_pil_list))
-            ]
-
-    else:
-
-        if not isinstance(
-            model,
-            SpatialTemporalForensicDetector
-        ):
-            model = SpatialTemporalForensicDetector()
-
-        fake_prob, frame_probs = model.analyze_sequence(
-            face_sequence_np
-        )
+    # Highest risk subject determines the overall video authenticity
+    max_subject = max(subject_predictions, key=lambda s: s[0])
+    fake_prob = max_subject[0]
+    frame_probs = max_subject[1]
+    face_pil_list = max_subject[2]
 
     fake_prob = float(
         np.clip(
