@@ -8,7 +8,7 @@ Write-Host "========================================================" -Foregroun
 Write-Host ""
 
 # 1. Start FastAPI backend in a separate PowerShell window
-Start-Process powershell -ArgumentList "-NoExit", "-File", "$scriptDir\run_server.ps1"
+Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "$scriptDir\run_server.ps1"
 
 Write-Host "Waiting 3 seconds for backend to start..." -ForegroundColor Yellow
 Start-Sleep -Seconds 3

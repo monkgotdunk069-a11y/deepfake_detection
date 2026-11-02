@@ -271,42 +271,51 @@ class MobileXGBDetector:
         if forensic_vec is not None and len(face_sequence_np) > 1:
             fft_0 = float(forensic_vec[0])
             fft_1 = float(forensic_vec[1])
-            delta_cb = float(forensic_vec[12])
-            delta_cr = float(forensic_vec[13])
+            std_delta_cb = float(forensic_vec[16])
+            std_delta_cr = float(forensic_vec[17])
             lap_ratio = float(forensic_vec[20])
             ela_max = float(forensic_vec[26])
             temp_mean = float(forensic_vec[30])
+            temp_std = float(forensic_vec[31])
             temp_max = float(forensic_vec[32])
 
             synthetic_signals: list[tuple[str, float]] = []
 
             if not is_live:
                 # 1. Fourier High-Frequency Energy Spike (GAN/Diffusion upsampling grid artifacts)
-                # Authentic optical camera recordings have fft_0 < 8.55, fft_1 < 6.65
-                if fft_0 > 8.60 and fft_1 > 6.65:
+                # In authentic phone/camera recordings with sharp background detail, lap_ratio < 0.55 (natural depth of field).
+                # Synthetic faces and AI diffusion have uniform texture/noise or artificial boundaries with lap_ratio >= 0.72.
+                if fft_0 > 8.60 and fft_1 > 6.65 and lap_ratio >= 0.72:
                     fft_score = float(min(0.95, 0.65 + (fft_0 - 8.60) / 0.35 * 0.30))
-                    synthetic_signals.append(("FFT_Spike", fft_score))
+                    synthetic_signals.append(("FFT_Synthetic_Grid", fft_score))
 
-                # 2. Extreme Latent pixel morphing & non-rigid warping (Image-to-Video diffusion)
-                if temp_max > 5000.0 and temp_mean > 2500.0:
-                    j_score = float(min(0.95, 0.65 + (temp_max - 5000.0) / 4000.0 * 0.30))
-                    synthetic_signals.append(("Latent_Morphing", j_score))
+                # 2. Extreme Latent pixel morphing & non-rigid warping (Face-swap glitch / diffusion temporal warp)
+                if temp_max > 5000.0 and temp_std > 800.0:
+                    morph_score = float(min(0.95, 0.70 + (temp_max - 5000.0) / 4000.0 * 0.25))
+                    synthetic_signals.append(("Temporal_Morphing", morph_score))
 
-                # 3. Boundary Chrominance / Edge Disparity (Face-swap paste seam)
-                if (delta_cb > 16.0 or delta_cr > 16.0) and lap_ratio > 3.5:
-                    bdry_score = float(min(0.94, 0.60 + (max(delta_cb, delta_cr) - 16.0) / 10.0 * 0.30))
-                    synthetic_signals.append(("Boundary_Softening", bdry_score))
+                # 3. Boundary Chrominance / Edge Disparity (Face-swap paste seam & temporal seam jitter)
+                # Requires abnormal boundary fluctuation (std > 2.5) AND texture disparity (lap_ratio >= 0.72)
+                if (std_delta_cb > 2.5 or std_delta_cr > 2.5) and lap_ratio >= 0.72:
+                    bdry_score = float(min(0.94, 0.68 + (max(std_delta_cb, std_delta_cr) - 2.5) / 2.0 * 0.22))
+                    synthetic_signals.append(("Boundary_Instability", bdry_score))
 
                 # 4. Error Level Analysis (ELA) Compression Disparity
-                if ela_max > 60.0:
+                if ela_max > 60.0 and lap_ratio >= 0.72:
                     ela_score = float(min(0.95, 0.60 + (ela_max - 60.0) / 40.0 * 0.35))
                     synthetic_signals.append(("ELA_Disparity", ela_score))
 
+                # Decision Fusion:
                 if len(synthetic_signals) >= 2:
                     anomaly_prob = float(np.mean([s[1] for s in synthetic_signals]))
                     proba = max(proba, anomaly_prob)
-                elif len(synthetic_signals) == 1 and synthetic_signals[0][0] == "FFT_Spike" and synthetic_signals[0][1] >= 0.70:
-                    proba = max(proba, synthetic_signals[0][1])
+                elif len(synthetic_signals) == 1:
+                    sig_name, sig_score = synthetic_signals[0]
+                    # High-confidence standalone cues must be unmistakably artificial:
+                    # 1. Massive temporal morphing / glitch (temp_max > 5000 and temp_std > 800)
+                    # 2. Fourier synthetic grid with abnormal texture uniformity (lap_ratio >= 0.72)
+                    if sig_name in {"Temporal_Morphing", "FFT_Synthetic_Grid"} and sig_score >= 0.75:
+                        proba = max(proba, sig_score)
             else:
                 # In live webcam mode: only trigger if extreme virtual camera / screen replay spoofing is detected
                 if fft_0 > 9.15 and fft_1 > 7.40 and ela_max > 50.0:
