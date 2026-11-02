@@ -120,7 +120,8 @@ def process_video(
 def process_video_multi_subject(
     video_path: str,
     num_frames: int = 32,
-    target_size: Tuple[int, int] = (224, 224)
+    target_size: Tuple[int, int] = (224, 224),
+    margin_ratio: float = 0.25,
 ) -> List[Tuple[np.ndarray, List[Image.Image]]]:
     """
     Extracts and tracks face sequences for every distinct subject present in the video.
@@ -161,13 +162,15 @@ def process_video_multi_subject(
                 )
                 last_box = best_f
                 h, w = frame.shape[:2]
-                x1 = max(0, best_f.x)
-                y1 = max(0, best_f.y)
-                x2 = min(w, best_f.x + best_f.w)
-                y2 = min(h, best_f.y + best_f.h)
+                mx = int(best_f.w * margin_ratio)
+                my = int(best_f.h * margin_ratio)
+                x1 = max(0, best_f.x - mx)
+                y1 = max(0, best_f.y - my)
+                x2 = min(w, best_f.x + best_f.w + mx)
+                y2 = min(h, best_f.y + best_f.h + my)
                 crop = frame[y1:y2, x1:x2]
                 if crop.size > 0:
-                    crop = cv2.resize(crop, target_size)
+                    crop = cv2.resize(crop, target_size, interpolation=cv2.INTER_LINEAR)
                 else:
                     crop = np.zeros((*target_size, 3), dtype=np.uint8)
             else:
