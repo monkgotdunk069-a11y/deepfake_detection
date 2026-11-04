@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  deepdetect:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: deepdetect-ai:latest
+    container_name: deepdetect-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DEEPDETECT_MODEL=mobilenet_xgboost
+      - DEEPDETECT_CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173
+      - DEEPDETECT_DB=/app/data/deepdetect.db
+    volumes:
+      # Persist SQLite analysis history, jobs, and user accounts across container restarts
+      - deepdetect-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  deepdetect-data:
+    name: deepdetect-data
+

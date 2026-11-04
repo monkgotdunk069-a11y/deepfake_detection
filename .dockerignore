@@ -1,0 +1,40 @@
+# Git & IDE
+.git
+.gitignore
+.vscode
+.idea
+.antigravity
+
+# Python caches & virtual environments
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.features_cache
+data_cache
+
+# Large datasets & test recordings (prevents sending gigabytes to Docker daemon)
+data/
+*.mp4
+*.avi
+*.mov
+*.mkv
+scratch/
+scratch_*.png
+scratch_*.py
+confusion_matrix.png
+
+# Node modules & local builds
+frontend/node_modules/
+node_modules/
+dist/
+
+# Logs & temp
+*.log
+*.tmp
+deepfake.db
+

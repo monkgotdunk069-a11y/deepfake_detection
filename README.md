@@ -39,14 +39,31 @@ In production real-world deployments, attackers and creators frequently generate
 
 ## 🚀 Quick Start & How to Run
 
-### Option A: One-Click Launcher (Recommended)
+### Option A: One-Click Launcher (Recommended for Local Dev)
 Double-click [`run_app.bat`](./run_app.bat) in File Explorer, or run in PowerShell:
 ```powershell
 .\run_app.ps1
 ```
 This automatically starts the FastAPI backend on port `8000`, the React frontend on port `5173`, and opens your default browser.
 
-### Option B: Start Separately
+### Option B: Docker Deployment (Single Container, Production Ready)
+Build and run the entire application (Backend + React Frontend) inside Docker in one command:
+```powershell
+# Using Docker Compose (Recommended):
+docker-compose up --build -d
+
+# Or using the Windows one-click script:
+.\run_docker.bat
+```
+Open **`http://localhost:8000`** in your browser. All analysis history and user databases are automatically persisted in a named Docker volume (`deepdetect-data`).
+
+To view logs or stop the container:
+```powershell
+docker-compose logs -f
+docker-compose down
+```
+
+### Option C: Start Separately (Without Docker)
 
 **Terminal 1 — Backend (FastAPI)**:
 ```powershell
