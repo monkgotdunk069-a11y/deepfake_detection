@@ -32,6 +32,19 @@ MODEL_PATH = os.path.join(
     "deepfake_model.pt"
 )
 
+_full_winner_path = os.path.join(PROJECT_ROOT, "artifacts_full", "mobilenet_xgboost.joblib")
+_smoke_winner_path = os.path.join(PROJECT_ROOT, "artifacts_smoke", "mobilenet_xgboost.joblib")
+_artifacts_winner_path = os.path.join(PROJECT_ROOT, "artifacts", "mobilenet_xgboost.joblib")
+
+if os.path.isfile(_full_winner_path):
+    DEFAULT_XGB_PATH = _full_winner_path
+elif os.path.isfile(_artifacts_winner_path):
+    DEFAULT_XGB_PATH = _artifacts_winner_path
+elif os.path.isfile(_smoke_winner_path):
+    DEFAULT_XGB_PATH = _smoke_winner_path
+else:
+    DEFAULT_XGB_PATH = None
+
 
 def load_detector_model(
     model_path=MODEL_PATH,
@@ -48,12 +61,17 @@ def load_detector_model(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
 
+    if backbone_type in {"mobilenet_xgb", "mobilenet_xgboost", "mobilenet"}:
+        if (model_path == MODEL_PATH or model_path.endswith(".pt")) and DEFAULT_XGB_PATH:
+            model_path = DEFAULT_XGB_PATH
+        print(f"Using device: {device}")
+        print(f"Loading model: {model_path}")
+        print(f"Backbone: {backbone_type}")
+        return MobileXGBDetector.load(model_path, pretrained=True), device
+
     print(f"Using device: {device}")
     print(f"Loading model: {model_path}")
     print(f"Backbone: {backbone_type}")
-
-    if backbone_type in {"mobilenet_xgb", "mobilenet_xgboost", "mobilenet"}:
-        return MobileXGBDetector.load(model_path, pretrained=True), device
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(

@@ -66,17 +66,21 @@ def collect_dataset(
     logger.info("Found %d Fake videos (Celeb-synthesis)", len(fake_paths))
 
     rng = random.Random(seed)
-    if limit_per_class and limit_per_class > 0:
-        n_real = min(limit_per_class, len(real_paths))
-        n_fake = min(limit_per_class, len(fake_paths))
-        sampled_real = rng.sample(real_paths, n_real)
-        sampled_fake = rng.sample(fake_paths, n_fake)
+    n_real = min(limit_per_class, len(real_paths)) if (limit_per_class and limit_per_class > 0) else len(real_paths)
+    n_fake = min(limit_per_class, len(fake_paths)) if (limit_per_class and limit_per_class > 0) else min(n_real, len(fake_paths))
+
+    sampled_real = sorted(real_paths)[:n_real] if (not limit_per_class or limit_per_class >= len(real_paths)) else rng.sample(real_paths, n_real)
+
+    # Prioritize already cached features to avoid redundant frame extraction
+    cache_path = Path(".features_cache")
+    cached_fake = [p for p in fake_paths if (cache_path / f"{p.stem}_32f_v2.npy").is_file()]
+    uncached_fake = [p for p in fake_paths if not (cache_path / f"{p.stem}_32f_v2.npy").is_file()]
+
+    if len(cached_fake) >= n_fake:
+        sampled_fake = sorted(cached_fake)[:n_fake]
     else:
-        # Match real count if full mode
-        n_real = len(real_paths)
-        n_fake = min(len(real_paths), len(fake_paths))
-        sampled_real = real_paths
-        sampled_fake = rng.sample(fake_paths, n_fake)
+        needed = n_fake - len(cached_fake)
+        sampled_fake = cached_fake + rng.sample(uncached_fake, min(needed, len(uncached_fake)))
 
     items = [(str(p), 0) for p in sampled_real] + [(str(p), 1) for p in sampled_fake]
     rng.shuffle(items)
@@ -193,6 +197,13 @@ def train_advanced_model(
     detector.save(str(save_file))
     logger.info("Saved trained model to: %s", save_file)
 
+    # Also mirror to artifacts/ if output_path is artifacts_full
+    artifacts_dir = ROOT / "artifacts"
+    if artifacts_dir != output_path:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        detector.save(str(artifacts_dir / "mobilenet_xgboost.joblib"))
+        logger.info("Mirrored trained model to: %s", artifacts_dir / "mobilenet_xgboost.joblib")
+
     report = {
         "timestamp": time.time(),
         "seed": seed,
@@ -211,13 +222,25 @@ def train_advanced_model(
             "roc_auc": roc_auc,
             "confusion_matrix": cm,
         },
-        "production_training": "MobileNetV3-Large + Multi-Domain Forensic Descriptors (FFT, Color, Texture, ELA, Jitter) + XGBoost",
+        "results": {
+            "mobilenet_xgboost_regularized": {
+                "accuracy": acc,
+                "balanced_accuracy": bal_acc,
+                "f1": f1,
+                "roc_auc": roc_auc,
+            }
+        },
+        "production_training": "MobileNetV3-Large + Multi-Domain Forensic Descriptors (FFT, Color, Texture, ELA, Jitter) + Regularized XGBoost",
     }
 
     report_file = output_path / "benchmark_results.json"
     with open(report_file, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
     logger.info("Saved benchmark report to: %s", report_file)
+
+    if artifacts_dir != output_path:
+        with open(artifacts_dir / "benchmark_results.json", "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
 
     return report
 

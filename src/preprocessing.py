@@ -121,7 +121,7 @@ def process_video_multi_subject(
     video_path: str,
     num_frames: int = 32,
     target_size: Tuple[int, int] = (224, 224),
-    margin_ratio: float = 0.25,
+    margin_ratio: float = 0.20,
 ) -> List[Tuple[np.ndarray, List[Image.Image]]]:
     """
     Extracts and tracks face sequences for every distinct subject present in the video.
@@ -151,23 +151,35 @@ def process_video_multi_subject(
     subjects: List[Tuple[np.ndarray, List[Image.Image]]] = []
     for ref_f in ref_faces:
         subject_crops: List[np.ndarray] = []
-        last_box = ref_f
+        sm_cx = float(ref_f.x + ref_f.w / 2.0)
+        sm_cy = float(ref_f.y + ref_f.h / 2.0)
+        sm_w = float(ref_f.w)
+        sm_h = float(ref_f.h)
+        alpha = 0.65  # Temporal smoothing weight for steady face centering
+
         for frame, frame_faces in zip(raw_frames, all_faces_per_frame):
             if frame_faces:
-                ref_cx = last_box.x + last_box.w / 2.0
-                ref_cy = last_box.y + last_box.h / 2.0
                 best_f = min(
                     frame_faces,
-                    key=lambda f: (f.x + f.w / 2.0 - ref_cx) ** 2 + (f.y + f.h / 2.0 - ref_cy) ** 2
+                    key=lambda f: (f.x + f.w / 2.0 - sm_cx) ** 2 + (f.y + f.h / 2.0 - sm_cy) ** 2
                 )
-                last_box = best_f
+                curr_cx = float(best_f.x + best_f.w / 2.0)
+                curr_cy = float(best_f.y + best_f.h / 2.0)
+                curr_w = float(best_f.w)
+                curr_h = float(best_f.h)
+
+                sm_cx = alpha * curr_cx + (1.0 - alpha) * sm_cx
+                sm_cy = alpha * curr_cy + (1.0 - alpha) * sm_cy
+                sm_w = alpha * curr_w + (1.0 - alpha) * sm_w
+                sm_h = alpha * curr_h + (1.0 - alpha) * sm_h
+
                 h, w = frame.shape[:2]
-                mx = int(best_f.w * margin_ratio)
-                my = int(best_f.h * margin_ratio)
-                x1 = max(0, best_f.x - mx)
-                y1 = max(0, best_f.y - my)
-                x2 = min(w, best_f.x + best_f.w + mx)
-                y2 = min(h, best_f.y + best_f.h + my)
+                mx = int(sm_w * margin_ratio)
+                my = int(sm_h * margin_ratio)
+                x1 = max(0, int(sm_cx - sm_w / 2.0) - mx)
+                y1 = max(0, int(sm_cy - sm_h / 2.0) - my)
+                x2 = min(w, int(sm_cx + sm_w / 2.0) + mx)
+                y2 = min(h, int(sm_cy + sm_h / 2.0) + my)
                 crop = frame[y1:y2, x1:x2]
                 if crop.size > 0:
                     crop = cv2.resize(crop, target_size, interpolation=cv2.INTER_LINEAR)
